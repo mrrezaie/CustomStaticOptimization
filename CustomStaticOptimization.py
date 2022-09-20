@@ -158,6 +158,12 @@ for i in range(frame):
 #####################################################################
 # https://stackoverflow.com/questions/37791680/scipy-optimize-minimize-slsqp-with-linear-constraints-fails
 
+# remove pelvis (and any other?) coordinates from the optimization
+cBool = [True] * nCoordinates # coordinates boolean
+for i in range(nCoordinates):
+	if nameCoordinates[i].startswith('pelvis'):
+		cBool[i] = False
+
 activity = np.empty((frame, nMuscles)) # muscle activity
 force = np.empty((frame, nMuscles)) # muscle force
 
@@ -179,20 +185,20 @@ init = np.zeros(nMuscles) + 0.1 # initial guess of muscle activity (0.125)
 lb = np.zeros(nMuscles) # lower bound (0)
 ub = np.ones(nMuscles) # upper bound (1)
 constraints = {'type':'eq', 'fun': eqConstraint}
-# constraints = [{'type':'eq', 'fun': lambda z,n=i: eqConstraint(z, n)} for i in range(nCoordinates)]
+# constraints = [{'type':'eq', 'fun': lambda z,n=i: eqConstraint(z, n)} for i in range(sum(cBool))]
 
 for i in range(frame): #frame
 	print(f'Optimization ... {i+1}/{len(time)} ({round(time[i],3)})')
 
-	moment = np.vstack(list(m.values())).T[i,:] # (nCoordinates)
-	momentArm = MA[i,:,:] # (nCoordinate, nMuscles)
+	moment = np.vstack(list(m.values())).T[i,cBool] # (nCoordinates)
+	momentArm = MA[i,cBool,:] # (nCoordinate, nMuscles)
 	strength = S[i,:] # (nMuscles)
 	# strength = MIF # constant strength
 	# length = FL[i,:] # (nMuscles)
 	# volume = strength * length # (nMuscles)
 
 	# ######################### scipy
-	out = minimize(objFun, x0=init, method='SLSQP', bounds=Bounds(lb,ub), constraints=constraints, options={'maxiter':250}, tol=1e-04)
+	out = minimize(objFun, x0=init, method='SLSQP', bounds=Bounds(lb,ub), constraints=constraints, options={'maxiter':500}, tol=1e-08)
 	print(f"\t\tfun={round(out['fun'],3)} success={out['success']}")
 	if out['status'] != 0: print(f"\t\t\tmessage: {out['message']}")
 
@@ -207,18 +213,20 @@ for i in range(frame): #frame
 	# prob.solve()
 	# print("status:", prob.status)
 	# print("optimal value", prob.value)
-	# # print(f.value)
+	# print(f.value)
+
+	# force[i,:] = f.value
+	# activity[i,:] = f.value / strength
 
 # write muscles activity and force to mot files
 head = f"static optimization\nversion=1\nnRows={activity.shape[0]}\nnColumns={1+activity.shape[1]}\ninDegrees=yes\nendheader\n" + 'time\t' + '\t'.join(nameMuscles)
 np.savetxt('muscle activity.mot', np.hstack((time.reshape((-1,1)),activity)), fmt='%.6f', delimiter='\t', newline='\n', header=head, comments='')
 np.savetxt('muscle force.mot', np.hstack((time.reshape((-1,1)),force)), fmt='%.6f', delimiter='\t', newline='\n', header=head, comments='')
 
-
-plt.plot(activity[:, nameMuscles.index('soleus_r')], label='soleus')
-plt.plot(activity[:, nameMuscles.index('rect_fem_r')], label='rectus femoris')
-plt.legend()
-plt.show(block=False)
-
-# plt.plot(time, force[:, nameMuscles.index('soleus_r')])
+# plt.plot(activity[:, nameMuscles.index('soleus_r')], label='soleus')
+# plt.plot(activity[:, nameMuscles.index('rect_fem_r')], label='rectus femoris')
+# plt.legend()
 # plt.show(block=False)
+
+plt.plot(time, force[:, nameMuscles.index('soleus_r')])
+plt.show(block=False)

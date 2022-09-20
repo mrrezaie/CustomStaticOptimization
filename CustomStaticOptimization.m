@@ -121,6 +121,10 @@ end
 % plot(MA(:,10,28))
 
 %% Static Optimization.
+
+% exclude pelvis coordinates
+cBool = ~startsWith(nameCoordinates, 'pelvis');
+
 options_sqp = optimoptions('fmincon','Display','notify-detailed', ...
      'TolCon',1e-4,'TolFun',1e-12,'TolX',1e-8,'MaxFunEvals',20000,...
      'MaxIter',5000,'Algorithm','sqp');
@@ -142,8 +146,8 @@ for i = 1:frame
     fprintf('Optimizing...time step %i/%i \n',  i, frame);
 
 	% Linear equality constraints (Aeq=matrix and beq=array)
-    Aeq = squeeze(MA(i,:,:)).*S(i,:);   % moment arm * strength
-    beq = m2(i,:)';
+    Aeq = squeeze(MA(i,cBool,:)).*S(i,:);   % moment arm * strength
+    beq = m2(i,cBool)';
 
     a = fmincon(costFunc, init, A, b, Aeq, beq, lb, ub, nonlcon, options_sqp);
 %     init = a;
