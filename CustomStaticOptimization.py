@@ -6,34 +6,63 @@ import os
 from scipy.optimize import minimize, Bounds, LinearConstraint
 import cvxpy as cp
 
-def readExp(file, sep='\t', deg=True):
-	''' Read OpenSim STO and MOT files 
+def readExp(file, sep='\t', unit=None):
+	''' Read OpenSim STO and MOT files and return a dict[keys=labels, vaules=data]
 	or any other format that the headers are separated from labels and data by 'endheader' line.
-	can return data and labels, dataFrame, or dict'''
-    with open(file, mode='r') as f:
-        while True:
-            line = f.readline()
-            if 'endheader' in line:
-                line = f.readline()
-                break
-        labels = line.split('\n')[0].split(sep)
-        a = f.readlines()
-	data = np.empty((len(a), len(labels)), dtype=np.float64)
-    for ii,i in enumerate(a): # rows
-        for jj,j in enumerate(i.split(sep)): # columns
-            data[ii,jj] = float(j)
-    del a
-    if deg==False:
-    	data[:, 1:] = np.deg2rad(data[:, 1:])
-    data2 = dict()
-    for i,ii in enumerate(labels):
-    	data2[ii] = data[:,i]
-    return data2
+	unit = degree/radian'''
+	with open(file, mode='r') as f:
+		while True:
+			line = f.readline()
+
+			if line.startswith('nRows'):
+				row = int(line.split('=')[-1])
+			elif line.startswith('datarows'): # old MOT files
+				row = int(line.split(' ')[-1])
+			# else: row = None
+
+			if line.startswith('nColumns'):
+				column = int(line.split('=')[-1])
+			elif line.startswith('datacolumns'):  # old MOT files
+				column = int(line.split(' ')[-1])
+			# else: column = None
+
+			if line.startswith('inDegrees'):
+				inDegrees = line.split('=')[-1].split('\n')[0]
+
+			if line.startswith('endheader'):
+				line = f.readline() # get labels
+				break
+		labels = line.split('\n')[0].split(sep)
+		a = f.readlines()
+
+	# if row==None or column==None:
+	# 	data = np.empty((len(a), len(labels)), dtype=np.float64)
+	# else:
+	data = np.empty((row, column), dtype=np.float64)
+
+	for ii,i in enumerate(a): # rows
+		try:
+			for jj,j in enumerate(i.split(sep)): # columns
+				data[ii,jj] = float(j)
+		except: pass
+	del a
+	
+	# convert the units from degrees to radians
+	if unit=='radian' and inDegrees=='yes': # convert degrees to radians
+		data[:, 1:] = np.deg2rad(data[:, 1:]) # exclude the first column (time)
+	elif unit=='degree' and inDegrees=='no': # convert radians to degrees
+		data[:, 1:] = np.rad2deg(data[:, 1:]) # exclude the first column (time)
+	
+	# convert to dict
+	data2 = dict() 
+	for i,ii in enumerate(labels):
+		data2[ii] = data[:,i]
+	return data2
 
 
 m = readExp('inverse_dynamics.sto') #'' # moment
-q = readExp('Kinematics_q.sto', deg=False) # angle in radian
-u = readExp('Kinematics_u.sto', deg=False) # velocity in radian/s
+q = readExp('Kinematics_q.sto', unit='radian') # angle in radian
+u = readExp('Kinematics_u.sto', unit='radian') # velocity in radian/s
 model = osim.Model('subject01_simbody.osim')
 
 time = q['time']
