@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import os
 from scipy.optimize import minimize, Bounds, LinearConstraint
 import cvxpy as cp
+from tqdm import tqdm
 
 def readExp(file, sep='\t', unit=None):
 	''' Read OpenSim STO and MOT files and return a dict[keys=labels, vaules=data]
@@ -154,7 +155,7 @@ for i in range(frame):
 			coordinate.setValue(state, q[nameCoordinates[k]][i])
 			MA[i,k,j] = muscle.computeMomentArm(state, coordinate)
 
-
+V = S*FL # muscle volume = strength * fiber length
 # plt.plot(MA[:, nameCoordinates.index('knee_angle_r'), nameMuscles.index('rect_fem_r')])
 # plt.show(block=False)
 
@@ -190,20 +191,17 @@ for i in range(frame):
 # remove pelvis (and any other?) coordinates from the optimization
 cBool = [True] * nCoordinates # coordinates boolean
 for i in range(nCoordinates):
-	if nameCoordinates[i].startswith('pelvis'):
-		cBool[i] = False
+	for j in ['pelvis', 'mtp', 'lumbar', 'subtalar']:
+		if nameCoordinates[i].startswith(j):
+			cBool[i] = False
 
 activity = np.empty((frame, nMuscles)) # muscle activity
 force = np.empty((frame, nMuscles)) # muscle force
 
 def objFun(a):  # sum of squared muscle activation
-	return np.sum(a**2) # volume 
+	return np.sum((a)**2) # volume 
 
-'''
-momentArm is a matrix (nCoordinate, nMuscles)
-moment is an array (nCoordinates)
-strength is an array (nMuscles)
-equality constraint: to be zero
+'''equality constraint: to be zero
 inequality constraint: to be non-negative (greater than zero)'''
 
 def eqConstraint(a):  # A.dot(x) - b
@@ -216,23 +214,22 @@ ub = np.ones(nMuscles) # upper bound (1)
 constraints = {'type':'eq', 'fun': eqConstraint}
 # constraints = [{'type':'eq', 'fun': lambda z,n=i: eqConstraint(z, n)} for i in range(sum(cBool))]
 
+# for i in tqdm(range(frame), desc='OpenSim Analysis'):
 for i in range(frame): #frame
 	print(f'Optimization ... {i+1}/{len(time)} ({round(time[i],3)})')
-
-	moment = np.vstack(list(m.values())).T[i,cBool] # (nCoordinates)
-	momentArm = MA[i,cBool,:] # (nCoordinate, nMuscles)
-	strength = S[i,:] # (nMuscles)
-	# strength = MIF # constant strength
-	# length = FL[i,:] # (nMuscles)
-	# volume = strength * length # (nMuscles)
+	moment = np.vstack(list(m.values())).T[i,cBool] # 1D (nCoordinates)
+	momentArm = MA[i,cBool,:] # 2D (nCoordinate, nMuscles)
+	strength = MIF #S[i,:]#MIF # 1D (nMuscles)
+	volume = V[i,:] # 1D (nMuscles)
 
 	# ######################### scipy
 	out = minimize(objFun, x0=init, method='SLSQP', bounds=Bounds(lb,ub), constraints=constraints, options={'maxiter':500}, tol=1e-08)
 	print(f"\t\tfun={round(out['fun'],3)} success={out['success']}")
-	if out['status'] != 0: print(f"\t\t\tmessage: {out['message']}")
+	if out['status'] != 0: print(f"\t\t\tmessage: {out['message']} ({out['status']})")
 
 	activity[i,:] = out['x']
 	force[i,:] = strength * out['x']
+	# init = out['x']
 
 	# ######################### cvxpy (alternative to scipy)
 	# f = cp.Variable(nMuscles)
@@ -252,10 +249,11 @@ head = f"static optimization\nversion=1\nnRows={activity.shape[0]}\nnColumns={1+
 np.savetxt('muscle activity.mot', np.hstack((time.reshape((-1,1)),activity)), fmt='%.6f', delimiter='\t', newline='\n', header=head, comments='')
 np.savetxt('muscle force.mot', np.hstack((time.reshape((-1,1)),force)), fmt='%.6f', delimiter='\t', newline='\n', header=head, comments='')
 
-# plt.plot(activity[:, nameMuscles.index('soleus_r')], label='soleus')
-# plt.plot(activity[:, nameMuscles.index('rect_fem_r')], label='rectus femoris')
-# plt.legend()
-# plt.show(block=False)
-
-plt.plot(time, force[:, nameMuscles.index('soleus_r')])
+plt.plot(time, activity[:, nameMuscles.index('soleus_r')], label='soleus')
+plt.plot(time, activity[:, nameMuscles.index('rect_fem_r')], label='rectus femoris')
+plt.plot(time, activity[:, nameMuscles.index('per_long_r')], label='per_long_r')
+plt.legend()
 plt.show(block=False)
+
+# plt.plot(time, force[:, nameMuscles.index('soleus_r')])
+# plt.show(block=False)

@@ -51,7 +51,7 @@ for i=1:nCoordinates
     end
 end
 
-
+% retrieve muscle parameters
 MIF= zeros(1,nMuscles); % muscle maximum isometric force
 L  = zeros(frame, nMuscles); % muscle length
 FL = zeros(frame, nMuscles); % fiber length
@@ -65,7 +65,6 @@ PFF= zeros(frame, nMuscles); % passive fiber force
 TF = zeros(frame, nMuscles); % tendon force
 MA = zeros(frame, nCoordinates, nMuscles); % muscle moment arm
 
-% store muscle parameters
 for i=1:frame
 	fprintf('Muscle Parameters ... at %f\n', time(i))
     
@@ -116,9 +115,7 @@ for i=1:frame
     end
 end
 
-% plot(S(:,34))
-% 
-% plot(MA(:,10,28))
+V = S .* FL; % muscle volume = strength * fiber length
 
 %% Static Optimization.
 
@@ -127,17 +124,13 @@ cBool = ~startsWith(nameCoordinates, 'pelvis');
 
 options_sqp = optimoptions('fmincon','Display','notify-detailed', ...
      'TolCon',1e-4,'TolFun',1e-12,'TolX',1e-8,'MaxFunEvals',20000,...
-     'MaxIter',5000,'Algorithm','sqp');
-options_ip = optimoptions('fmincon','Display','notify-detailed', ...
-     'TolCon',1e-4,'TolFun',1e-12,'TolX',1e-8,'MaxFunEvals',1000000,...
-     'MaxIter',10000,'Algorithm','interior-point');
+     'MaxIter',500,'Algorithm','sqp');
 
 activity = zeros(1, nMuscles);
 force = zeros(1, nMuscles);
 init = 0.1 * ones(1, nMuscles); % initial guess of activation
 lb = zeros(1, nMuscles); % lower bound (min muscle activity = 0)
 ub =  ones(1, nMuscles); % upper bound (max muscle activity = 1)
-costFunc = @(a) sum(a.^2); % sum of squared muscle activity
 A = []; % Linear inequality constraints (A=matrix and b=array)
 b = [];
 nonlcon = []; % Nonlinear constraints (function)
@@ -146,21 +139,26 @@ for i = 1:frame
     fprintf('Optimizing...time step %i/%i \n',  i, frame);
 
 	% Linear equality constraints (Aeq=matrix and beq=array)
-    Aeq = squeeze(MA(i,cBool,:)).*S(i,:);   % moment arm * strength
-    beq = m2(i,cBool)';
-
-    a = fmincon(costFunc, init, A, b, Aeq, beq, lb, ub, nonlcon, options_sqp);
+    Aeq = squeeze(MA(i,cBool,:)) .* S(i,:); % moment arm * strength
+    beq = m2(i,cBool); % joint moment
+    volume = V(i,:); % muscle volume
+    
+    a = fmincon(@(a) sum((volume.*a).^2), ... % sum of squared muscle activity
+                init, A, b, Aeq, beq, lb, ub, nonlcon, options_sqp);
 %     init = a;
 
 	activity(i,:) = a;
     force(i,:) = S(i,:) .* a;
-    
+
 end
 
 % plot(activity(:,34))
-plot(force(:,34))
-
+plot(time, activity(:,34))
+hold on
+plot(time, activity(:,40))
+legend('soleus', 'peroneus longus')
 %%
+
 function struct = readExp(file)
     % function [data, label] = readExp(file)
     %Read OpenSim STO and MOT files Or any other format that 
@@ -191,4 +189,3 @@ function struct = readExp(file)
         struct.(char(label(i))) = data(:,i);
     end
 end
-
