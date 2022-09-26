@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import os
 from scipy.optimize import minimize, Bounds, LinearConstraint
+from scipy.signal import filtfilt, butter
 import cvxpy as cp
 from tqdm import tqdm
 
@@ -62,39 +63,11 @@ def readExp(file, sep='\t', unit=None):
 
 
 m = readExp('inverse_dynamics.sto') #'' # moment
-q = readExp('Kinematics_q.sto', unit='radian') # angle in radian
-u = readExp('Kinematics_u.sto', unit='radian') # velocity in radian/s
-model = osim.Model('subject01_simbody.osim')
+q = readExp('_Kinematics_q.sto', unit='radian') # angle in radian
+u = readExp('_Kinematics_u.sto', unit='radian') # velocity in radian/s
+cycle = [0.27, 1.0]
 
-time = q['time']
-timeBool = np.logical_and(0.62<=time, time<=1.404)
-time = time[timeBool]
-frame = len(time)
-
-del q['time']
-del u['time']
-del m['time']
-
-# adjust the order of moment columns to match the kinematics
-m2 = dict()
-for i in list(q.keys()):
-	try:
-		m2[i] = m[i+'_moment']
-	except:
-		m2[i] = m[i+'_force']
-
-# plt.plot(m['knee_angle_r_moment'])
-# plt.plot(m2['knee_angle_r'])
-# plt.show(block=False)
-
-m = m2 
-del m2
-
-for i in list(q.keys()):
-	q[i] = q[i][timeBool]
-	u[i] = u[i][timeBool]
-	m[i] = m[i][timeBool]
-
+model = osim.Model('scaled.osim')
 state = model.initSystem()
 muscles = model.updMuscles()
 nameMuscles = [i.getName() for i in muscles]
@@ -103,6 +76,40 @@ coordinates = model.getCoordinateSet()
 nCoordinates = coordinates.getSize()
 nameCoordinates = [i.getName() for i in coordinates]
 
+time = q['time']
+timeBool = np.logical_and(cycle[0]<=time, time<=cycle[1])
+time = time[timeBool]
+fs = round(1/np.mean(np.diff(time))) # sampling frequency (Hz)
+frame = len(time)
+
+del q['time']
+del u['time']
+del m['time']
+
+# adjust the order of moment columns to match the kinematics
+for i in nameCoordinates:
+	try:
+		m[i] = m[i+'_moment']
+		del m[i+'_moment']
+	except:
+		m[i] = m[i+'_force']
+		del m[i+'_force']
+
+# crop and filter the input signals
+fc = 7 # cut-off frequency (Hz)
+b,a = butter(4, 2*fc/fs, btype='lowpass', output='ba')
+for i in nameCoordinates:
+	q[i] = filtfilt(b,a, q[i][timeBool], padlen=10)
+	u[i] = filtfilt(b,a, u[i][timeBool], padlen=10)
+	m[i] = filtfilt(b,a, m[i][timeBool], padlen=10)
+
+# remove pelvis (and any other?) coordinates
+cBool = [True] * nCoordinates # coordinates boolean
+for i in range(nCoordinates):
+	for j in ['pelvis', 'lumbar', 'beta']:
+		if j in nameCoordinates[i]:
+			cBool[i] = False
+
 # https://simtk.org/api_docs/opensim/api_docs/classOpenSim_1_1Muscle.html#ac2ddf201cb1a2263f9a1c6baa3d7f314
 MIF= np.empty(nMuscles) # muscle maximum isometric force
 L  = np.empty((frame, nMuscles)) # muscle length
@@ -110,7 +117,8 @@ FL = np.empty((frame, nMuscles)) # fiber length
 TL = np.empty((frame, nMuscles)) # tendon length
 OFL= np.empty(nMuscles) # optimal fiber length
 TSL= np.empty(nMuscles) # tendon slack length
-S  = np.empty((frame, nMuscles)) # muscle strength
+S  = np.empty((frame, nMuscles)) # muscle strength (fiber force)
+AS = np.empty((frame, nMuscles)) # muscle strength (active fiber force)
 FF = np.empty((frame, nMuscles)) # fiber force
 AFF= np.empty((frame, nMuscles)) # active fiber force
 PFF= np.empty((frame, nMuscles)) # passive fiber force
@@ -140,7 +148,7 @@ for i in range(frame):
 		TL[i,j] = muscle.getTendonLength(state)
 		OFL[j]  = muscle.getOptimalFiberLength()
 		TSL[j]  = muscle.getTendonSlackLength()
-		TL[i,j]   = muscle.getTendonLength(state)
+		TL[i,j] = muscle.getTendonLength(state)
 		MIF[j]  = muscle.getMaxIsometricForce()
 		FF[i,j] = muscle.getFiberForce(state)
 		AFF[i,j]= muscle.getActiveFiberForce(state)
@@ -149,34 +157,37 @@ for i in range(frame):
 
 		muscle.setActivation(state, 1)
 		S[i,j] = muscle.getFiberForce(state)
+		AS[i,j]= muscle.getActiveFiberForce(state)
 
 		for k in range(nCoordinates):
-			coordinate = coordinates.get(k)
-			coordinate.setValue(state, q[nameCoordinates[k]][i])
-			MA[i,k,j] = muscle.computeMomentArm(state, coordinate)
+			if cBool[k]
+				coordinate = coordinates.get(k)
+				coordinate.setValue(state, q[nameCoordinates[k]][i])
+				MA[i,k,j] = muscle.computeMomentArm(state, coordinate)
 
 V = S*FL # muscle volume = strength * fiber length
-# plt.plot(MA[:, nameCoordinates.index('knee_angle_r'), nameMuscles.index('rect_fem_r')])
-# plt.show(block=False)
 
-# plt.plot(L[:, nameMuscles.index('rect_fem_r')], label='muscle length')
-# plt.plot(FL[:, nameMuscles.index('rect_fem_r')], label='fiber length')
-# plt.plot(TL[:, nameMuscles.index('rect_fem_r')], label='tendon length')
+plt.plot(time, MA[:, nameCoordinates.index('knee_angle_r'), nameMuscles.index('recfem_r')])
+plt.show(block=False)
+
+# plt.plot(time, L[:, nameMuscles.index('recfem_r')], label='muscle length')
+# plt.plot(time, FL[:, nameMuscles.index('recfem_r')], label='fiber length')
+# plt.plot(time, TL[:, nameMuscles.index('recfem_r')], label='tendon length')
 # plt.legend()
 # plt.show(block=False)
 
-# plt.plot(S[:, nameMuscles.index('rect_fem_r')], label='strength')
-# plt.plot(FF[:, nameMuscles.index('rect_fem_r')], label='fiber force', marker='o')
-# plt.plot(AFF[:, nameMuscles.index('rect_fem_r')], label='active fiber force')
-# plt.plot(PFF[:, nameMuscles.index('rect_fem_r')], label='passive fiber force')
-# plt.plot(TF[:, nameMuscles.index('rect_fem_r')], label='tendon fiber force', marker='+')
-# plt.plot(AFF[:, nameMuscles.index('rect_fem_r')] + PFF[:, nameMuscles.index('rect_fem_r')], label='active+passive fiber force')
+# plt.plot(time, S[:, nameMuscles.index('rect_fem_r')], label='strength')
+# plt.plot(time, FF[:, nameMuscles.index('rect_fem_r')], label='fiber force', marker='o')
+# plt.plot(time, AFF[:, nameMuscles.index('rect_fem_r')], label='active fiber force')
+# plt.plot(time, PFF[:, nameMuscles.index('rect_fem_r')], label='passive fiber force')
+# plt.plot(time, TF[:, nameMuscles.index('rect_fem_r')], label='tendon fiber force', marker='+')
+# plt.plot(time, AFF[:, nameMuscles.index('rect_fem_r')] + PFF[:, nameMuscles.index('rect_fem_r')], label='active+passive fiber force')
 # plt.legend()
 # plt.show(block=False)
 
-# plt.plot(L[:, nameMuscles.index('rect_fem_r')], label='muscle length')
-# plt.plot(FL[:, nameMuscles.index('rect_fem_r')], label='fiber length')
-# plt.plot(TL[:, nameMuscles.index('rect_fem_r')], label='tendon length')
+# plt.plot(time, L[:, nameMuscles.index('rect_fem_r')], label='muscle length')
+# plt.plot(time, FL[:, nameMuscles.index('rect_fem_r')], label='fiber length')
+# plt.plot(time, TL[:, nameMuscles.index('rect_fem_r')], label='tendon length')
 # plt.axhline(OFL[nameMuscles.index('rect_fem_r')], label='optimal fiber length', color='c')
 # plt.axhline(TSL[nameMuscles.index('rect_fem_r')], label='tendon slack length', color='r')
 # plt.legend()
@@ -188,24 +199,16 @@ V = S*FL # muscle volume = strength * fiber length
 #####################################################################
 # https://stackoverflow.com/questions/37791680/scipy-optimize-minimize-slsqp-with-linear-constraints-fails
 
-# remove pelvis (and any other?) coordinates from the optimization
-cBool = [True] * nCoordinates # coordinates boolean
-for i in range(nCoordinates):
-	for j in ['pelvis', 'mtp', 'lumbar', 'subtalar']:
-		if nameCoordinates[i].startswith(j):
-			cBool[i] = False
-
 activity = np.empty((frame, nMuscles)) # muscle activity
 force = np.empty((frame, nMuscles)) # muscle force
 
 def objFun(a):  # sum of squared muscle activation
-	return np.sum((a)**2) # volume 
+	return np.sum((volume*a)**2) # volume*
 
 '''equality constraint: to be zero
 inequality constraint: to be non-negative (greater than zero)'''
 
 def eqConstraint(a):  # A.dot(x) - b
-	# return np.sum(momentArm[n,:]*strength*a) - moment[n]
 	return momentArm.dot(strength*a) - moment # np.sum(momentArm*strength*a, axis=1) - moment
 
 init = np.zeros(nMuscles) + 0.1 # initial guess of muscle activity (0.125)
@@ -219,7 +222,7 @@ for i in range(frame): #frame
 	print(f'Optimization ... {i+1}/{len(time)} ({round(time[i],3)})')
 	moment = np.vstack(list(m.values())).T[i,cBool] # 1D (nCoordinates)
 	momentArm = MA[i,cBool,:] # 2D (nCoordinate, nMuscles)
-	strength = MIF #S[i,:]#MIF # 1D (nMuscles)
+	strength = S[i,:] # 1D (nMuscles)
 	volume = V[i,:] # 1D (nMuscles)
 
 	# ######################### scipy
@@ -233,10 +236,10 @@ for i in range(frame): #frame
 
 	# ######################### cvxpy (alternative to scipy)
 	# f = cp.Variable(nMuscles)
-	# prob = cp.Problem(objective = cp.Minimize(cp.sum_squares(f)),
+	# prob = cp.Problem(objective = cp.Minimize(cp.sum_squares(volume*f)),
 	# 				  constraints = [0<=f, f<=strength,
 	# 				  				 momentArm @ f == moment])
-	# prob.solve()
+	# prob.solve(verbose=True)
 	# print("status:", prob.status)
 	# print("optimal value", prob.value)
 	# print(f.value)
@@ -250,8 +253,8 @@ np.savetxt('muscle activity.mot', np.hstack((time.reshape((-1,1)),activity)), fm
 np.savetxt('muscle force.mot', np.hstack((time.reshape((-1,1)),force)), fmt='%.6f', delimiter='\t', newline='\n', header=head, comments='')
 
 plt.plot(time, activity[:, nameMuscles.index('soleus_r')], label='soleus')
-plt.plot(time, activity[:, nameMuscles.index('rect_fem_r')], label='rectus femoris')
-plt.plot(time, activity[:, nameMuscles.index('per_long_r')], label='per_long_r')
+plt.plot(time, activity[:, nameMuscles.index('recfem_r')], label='rectus femoris')
+plt.plot(time, activity[:, nameMuscles.index('perlong_r')], label='per_long_r')
 plt.legend()
 plt.show(block=False)
 

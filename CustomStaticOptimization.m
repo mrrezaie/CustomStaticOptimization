@@ -3,11 +3,12 @@ close all; clear all; clc;
 
 import org.opensim.modeling.*;
 
-% Load data into MATLAB arrays.
-q = readExp('Kinematics_q.sto');
-u = readExp('Kinematics_u.sto');
+% Load data as struct
+q = readExp('_Kinematics_q.sto');
+u = readExp('_Kinematics_u.sto');
 m = readExp('inverse_dynamics.sto');
-model = Model('subject01_simbody.osim');
+cycle = [0.27, 1.0];
+model = Model('scaled.osim');
 state = model.initSystem();
 muscles = model.updMuscles();
 nMuscles = muscles.getSize();
@@ -24,30 +25,47 @@ for i=1:nCoordinates
 end
 
 time = q.time;
-timeBool = find((0.62<=time) & (time<=1.404));
+timeBool = find((cycle(1)<=time) & (time<=cycle(2)));
 time = time(timeBool);
+fs = round(1/mean(diff(time))); % sampling frequency
 frame = length(time);
+
 q = rmfield(q, 'time');
 u = rmfield(u, 'time');
 m = rmfield(m, 'time');
 
+% convert input data as MATLAB array
 q2 = zeros(frame, nCoordinates);
 u2 = zeros(frame, nCoordinates);
 m2 = zeros(frame, nCoordinates);
 
+fc = 7; % cut-off frequency
+[b,a] = butter(4, 2*fc/fs, 'low');
+
+% name of coordinates to exclude
+exclude = {'pelvis', 'lumbar', 'beta'};
+cBool = true(1,nCoordinates);
+
+% crop, filter and re-order the input files
 for i=1:nCoordinates
     q.(nameCoordinates{i}) = q.(nameCoordinates{i})(timeBool);
     u.(nameCoordinates{i}) = u.(nameCoordinates{i})(timeBool);
-    q2(:,i) = deg2rad(q.(nameCoordinates{i}));
-    u2(:,i) = deg2rad(u.(nameCoordinates{i}));
+    q2(:,i) = filtfilt(b,a, deg2rad(q.(nameCoordinates{i})));
+    u2(:,i) = filtfilt(b,a, deg2rad(u.(nameCoordinates{i})));
     try
         m.(nameCoordinates{i}) = m.([nameCoordinates{i},'_force'])(timeBool);
         m = rmfield(m , [nameCoordinates{i},'_force']);
-        m2(:,i) = m.(nameCoordinates{i});
+        m2(:,i) = filtfilt(b,a, m.(nameCoordinates{i}));
     catch
         m.(nameCoordinates{i}) = m.([nameCoordinates{i},'_moment'])(timeBool);
         m = rmfield(m , [nameCoordinates{i},'_moment']);
-        m2(:,i) = m.(nameCoordinates{i});
+        m2(:,i) = filtfilt(b,a, m.(nameCoordinates{i}));
+    end
+    
+    for j=1:length(exclude) % exclude coordinates
+        if contains(nameCoordinates{i}, exclude{j})
+            cBool(i) = false;
+        end
     end
 end
 
@@ -108,19 +126,19 @@ for i=1:frame
         S(i,j) = muscle.getFiberForce(state);
 
         for k=1:nCoordinates
-			coordinate = coordinates.get(k-1);
-			coordinate.setValue(state, q2(i,k))
-			MA(i,k,j) = muscle.computeMomentArm(state, coordinate);
+            if cBool(k)
+                coordinate = coordinates.get(k-1);
+                coordinate.setValue(state, q2(i,k))
+                MA(i,k,j) = muscle.computeMomentArm(state, coordinate);
+            end
         end
     end
 end
 
 V = S .* FL; % muscle volume = strength * fiber length
 
+% plot(time, MA(:,10, 30))
 %% Static Optimization.
-
-% exclude pelvis coordinates
-cBool = ~startsWith(nameCoordinates, 'pelvis');
 
 options_sqp = optimoptions('fmincon','Display','notify-detailed', ...
      'TolCon',1e-4,'TolFun',1e-12,'TolX',1e-8,'MaxFunEvals',20000,...
@@ -157,14 +175,19 @@ plot(time, activity(:,34))
 hold on
 plot(time, activity(:,40))
 legend('soleus', 'peroneus longus')
+
+
 %%
 
-function struct = readExp(file)
+function structData = readExp(file)
     % function [data, label] = readExp(file)
     %Read OpenSim STO and MOT files Or any other format that 
     %the headers are separated from labels and data by 'endheader' line.
     %can also return struct'''
-
+    
+    if ~exist(file)
+        error('%s file does not exist', file)
+    end
     i = 0;
     while true
         try 
@@ -186,6 +209,6 @@ function struct = readExp(file)
     label = strsplit(label, '\t');
 
     for i = 1:length(label)
-        struct.(char(label(i))) = data(:,i);
+        structData.(char(label(i))) = data(:,i);
     end
 end
