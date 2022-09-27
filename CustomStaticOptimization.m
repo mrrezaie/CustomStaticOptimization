@@ -1,15 +1,16 @@
 %% CustomStaticOptimization
 close all; clear all; clc;
-
 import org.opensim.modeling.*;
 
+cycle = [1.42, 2.16]; % desired time
 % Load data as struct
 q = readExp('_Kinematics_q.sto');
 u = readExp('_Kinematics_u.sto');
 m = readExp('inverse_dynamics.sto');
-cycle = [0.27, 1.0];
+
 model = Model('scaled.osim');
 state = model.initSystem();
+% get muscles
 muscles = model.updMuscles();
 nMuscles = muscles.getSize();
 nameMuscles = {};
@@ -17,6 +18,7 @@ for i=1:nMuscles
     nameMuscles(i) = muscles.get(i-1).getName();
 end
 
+% get coordinates
 coordinates = model.getCoordinateSet();
 nCoordinates = coordinates.getSize();
 nameCoordinates = {};
@@ -42,10 +44,6 @@ m2 = zeros(frame, nCoordinates);
 fc = 7; % cut-off frequency
 [b,a] = butter(4, 2*fc/fs, 'low');
 
-% name of coordinates to exclude
-exclude = {'pelvis', 'lumbar', 'beta'};
-cBool = true(1,nCoordinates);
-
 % crop, filter and re-order the input files
 for i=1:nCoordinates
     q.(nameCoordinates{i}) = q.(nameCoordinates{i})(timeBool);
@@ -61,7 +59,12 @@ for i=1:nCoordinates
         m = rmfield(m , [nameCoordinates{i},'_moment']);
         m2(:,i) = filtfilt(b,a, m.(nameCoordinates{i}));
     end
-    
+end
+
+% name of coordinates to exclude
+exclude = {'pelvis', 'lumbar', 'beta', 'mtp', 'subtalar', '_l'};
+cBool = true(1,nCoordinates);
+for i=1:nCoordinates
     for j=1:length(exclude) % exclude coordinates
         if contains(nameCoordinates{i}, exclude{j})
             cBool(i) = false;
@@ -101,6 +104,7 @@ for i=1:frame
     model.realizeDynamics(state);
 
     for j=1:nMuscles
+        % TODO exclude muscles of unwanted coordinates (to increase speed)
         muscle = Millard2012EquilibriumMuscle.safeDownCast(muscles.get(j-1));
         muscle.set_ignore_activation_dynamics(true); % disable activation dynamics
         muscle.set_ignore_tendon_compliance(true); % disable tendon compliance
@@ -126,9 +130,10 @@ for i=1:frame
         S(i,j) = muscle.getFiberForce(state);
 
         for k=1:nCoordinates
-            if cBool(k)
+            if cBool(k) % I hope this increases the speed
                 coordinate = coordinates.get(k-1);
                 coordinate.setValue(state, q2(i,k))
+                coordinate.setSpeedValue(state, u2(i,k))
                 MA(i,k,j) = muscle.computeMomentArm(state, coordinate);
             end
         end
@@ -147,10 +152,9 @@ options_sqp = optimoptions('fmincon','Display','notify-detailed', ...
 activity = zeros(1, nMuscles);
 force = zeros(1, nMuscles);
 init = 0.1 * ones(1, nMuscles); % initial guess of activation
-lb = zeros(1, nMuscles); % lower bound (min muscle activity = 0)
-ub =  ones(1, nMuscles); % upper bound (max muscle activity = 1)
-A = []; % Linear inequality constraints (A=matrix and b=array)
-b = [];
+lb = zeros(1, nMuscles)+1e-3; % lower bound (min muscle activity ~= 0)
+ub = ones(1, nMuscles)*inf;   % upper bound (max muscle activity >= 1)
+A=[]; b=[]; % Linear inequality constraints (A=matrix and b=array)
 nonlcon = []; % Nonlinear constraints (function)
 
 for i = 1:frame
@@ -161,20 +165,28 @@ for i = 1:frame
     beq = m2(i,cBool); % joint moment
     volume = V(i,:); % muscle volume
     
-    a = fmincon(@(a) sum((volume.*a).^2), ... % sum of squared muscle activity
-                init, A, b, Aeq, beq, lb, ub, nonlcon, options_sqp);
+    % minimize sum of volume weighted squared muscle activity
+    a = fmincon(@(a) sum(volume.*(a).^2), init, A, b, Aeq, beq, lb, ub, nonlcon, options_sqp);
 %     init = a;
 
 	activity(i,:) = a;
-    force(i,:) = S(i,:) .* a;
+    force(i,:) = S(i,:) .* a; % muscle strength * muscle activity
 
 end
 
 % plot(activity(:,34))
-plot(time, activity(:,34))
+figure()
+plot(time, activity(:,34), 'LineWidth',2)
 hold on
-plot(time, activity(:,40))
-legend('soleus', 'peroneus longus')
+plot(time, activity(:,40), 'LineWidth',2)
+hold on
+plot(time, activity(:,13), 'LineWidth',2)
+hold on
+plot(time, activity(:,14), 'LineWidth',2)
+legend('soleus', 'peroneus longus', 'gast lat', 'gast med')
+ylabel('activity')
+xlabel('stance (time)')
+% ylim([0,1])
 
 
 %%
