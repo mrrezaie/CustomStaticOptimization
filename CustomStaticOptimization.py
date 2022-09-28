@@ -203,7 +203,7 @@ activity = np.empty((frame, nMuscles)) # muscle activity
 force = np.empty((frame, nMuscles)) # muscle force
 
 def objFun(a):  # sum of squared muscle activation
-	return np.sum((volume*a)**2) # volume*
+	return np.sum(volume*(a)**2) # volume*
 
 '''equality constraint: to be zero
 inequality constraint: to be non-negative (greater than zero)'''
