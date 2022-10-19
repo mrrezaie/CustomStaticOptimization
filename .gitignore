@@ -1,3 +1,6 @@
 *.log
 muscle force.mot
 muscle activity.mot
+muscle activity.sto
+muscle force.sto
+state.sto
