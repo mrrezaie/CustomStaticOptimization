@@ -44,17 +44,13 @@ fc = 7; % cut-off frequency
 
 % crop, filter and re-order the input files
 for i=1:nCoordinates
-    q.(nameCoordinates{i}) = q.(nameCoordinates{i})(timeBool);
-    q2(:,i) = filtfilt(b,a, q.(nameCoordinates{i}));
-    u2(:,i) = filtfilt(b,a, gradient(q.(nameCoordinates{i})));
+    q2(:,i) = filtfilt(b,a, q.(nameCoordinates{i})(timeBool));
+    u2(:,i) = filtfilt(b,a, gradient(q2(:,i))); % filtered before and after derivitive
     try
-        m.(nameCoordinates{i}) = m.([nameCoordinates{i},'_force'])(timeBool);
-        m = rmfield(m , [nameCoordinates{i},'_force']);
+        m2(:,i) = filtfilt(b,a, m.([nameCoordinates{i},'_force'])(timeBool));
     catch
-        m.(nameCoordinates{i}) = m.([nameCoordinates{i},'_moment'])(timeBool);
-        m = rmfield(m , [nameCoordinates{i},'_moment']);
+        m2(:,i) = filtfilt(b,a, m.([nameCoordinates{i},'_moment'])(timeBool));
     end
-	m2(:,i) = filtfilt(b,a, m.(nameCoordinates{i}));
 end
 
 % name of coordinates to exclude
@@ -116,16 +112,19 @@ for i=1:frame
                 indx = indx+1;
             end
         end
-        
     end
 end
 toc
 
+% muscleForce = maxIsometricForce * (activity*activeForceLengthMultiplier*activeForceVelocityMultiplier + passiveForceLengthMultiplier)
+% tendonForce == fiberForceAlongTendon == maxIsometricForce * (activeForceLengthMultiplier*activeForceVelocityMultiplier + passiveForceLengthMultiplier) * cosPennationAngle
+
 % muscle volume (which one?)
 % V = MIF  .* FL;   % maxIsometricForce * fiberLength
 % V = MIF  .* FLT;  % maxIsometricForce * fiberLengthAlongTendon
+V = FF  .* FL;   % fiberForce * fiberLength
 % V = AFFT .* FLT;  % activeFiberForceAlongTendon* fiberLengthAlongTendon
-V = FFT  .* FLT;  % FiberForceAlongTendon* fiberLengthAlongTendon
+% V = FFT  .* FLT;  % FiberForceAlongTendon* fiberLengthAlongTendon
 
 
 % plot(time, MA(:,7, 34))
@@ -133,6 +132,7 @@ V = FFT  .* FLT;  % FiberForceAlongTendon* fiberLengthAlongTendon
 % plot(time, FL(:, 34))
 % figure()
 % plot(time, FF(:, 34))
+
 %% Static Optimization.
 % Linear equality constraints (Aeq=matrix and beq=array)
 options_sqp = optimoptions('fmincon','Display','notify-detailed', ...
@@ -156,11 +156,11 @@ for i = 1:frame
     % Linear constraint or Nonlinear???
     
     % moment arm * strength (which one???)
-%     Aeq = squeeze(MA(i,cBool,:)) .* MIF;  % maxIsometricForce
-%     Aeq = squeeze(MA(i,cBool,:)) .* AFF(i,:);  % activeFiberForce
+%     Aeq = MA{i} .* MIF;  % maxIsometricForce
+%     Aeq = MA{i} .* AFF(i,:);  % activeFiberForce
     Aeq = MA{i} .* AFFT(i,:); % activeFiberForceAlongTendon
-%     Aeq = squeeze(MA(i,cBool,:)) .* FF(i,:);   % fiberForce
-%     Aeq = squeeze(MA(i,cBool,:)) .* FFT(i,:);  % fiberForceAlongTendon
+%     Aeq = MA{i} .* FF(i,:);   % fiberForce
+%     Aeq = MA{i} .* FFT(i,:);  % fiberForceAlongTendon
 
     beq = m2(i,cBool); % joint moment
 
@@ -169,7 +169,8 @@ for i = 1:frame
     a = fmincon(@(a) sum(volume.*(a).^3), init, A, b, Aeq, beq, lb, ub, nonlcon, options_sqp);
 
 	activity(i,:) = a;
-    force(i,:) = AFFT(i,:) .* a; % muscle strength (which force???) * muscle activity
+    % muscle strength (which force??? active force) * muscle activity + passive force
+    force(i,:) = AFFT(i,:) .* a; % + PFFT(i,:)
 end
 toc
 
@@ -202,11 +203,9 @@ xlabel('stance (time)')
 %%
 
 function structData = readExp(file, radian)
-    % function [data, label] = readExp(file)
-    %Read OpenSim STO and MOT files Or any other format that 
-    %the headers are separated from labels and data by 'endheader' line.
-    %can also return struct'''
-    
+    % Read OpenSim STO and MOT files Or any other format that 
+    % the headers are separated from labels and data by 'endheader' line.
+
     if ~exist(file)
         error('%s file does not exist', file)
     end

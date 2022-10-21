@@ -87,8 +87,7 @@ nameCoordinates = [i.getName() for i in coordinates]
 state = model.initSystem()
 # print(model.getNumStateVariables())
 '''Rajagopal et al. 2016. Tendons were modeled as rigid when the tendon slack length was less than the muscle optimal fiber length.'''
-'''when set_ignore_tendon_compliance is true, the fiber_length is omitted from state and 
-the causes a change in state size'''
+'''when set_ignore_tendon_compliance is true, the fiber_length is omitted from state and causes a change in state size'''
 
 
 time = q['time']
@@ -112,11 +111,14 @@ for i in nameCoordinates:
 # crop and filter the input signals
 fc = 7 # cut-off frequency (Hz)
 b,a = butter(4, 2*fc/fs, btype='lowpass', output='ba')
-u = dict() # angular velocity (calculated using gradient)
-for i in nameCoordinates:
-	q[i] = filtfilt(b,a, q[i][timeBool], padlen=10)
-	u[i] = filtfilt(b,a, np.gradient(q[i]), padlen=10)
-	m[i] = filtfilt(b,a, m[i][timeBool], padlen=10)
+
+q2 = np.empty((frame, nCoordinates))
+u2 = np.empty((frame, nCoordinates))
+m2 = np.empty((frame, nCoordinates))
+for i in range(nCoordinates):
+	q2[:,i] = filtfilt(b,a, q[nameCoordinates[i]][timeBool], padlen=10)
+	u2[:,i] = filtfilt(b,a, np.gradient(q2[:,i]), padlen=10)
+	m2[:,i] = filtfilt(b,a, m[nameCoordinates[i]][timeBool], padlen=10)
 
 # remove pelvis (and any other?) coordinates
 cBool = [True] * nCoordinates # coordinates boolean
@@ -161,8 +163,8 @@ for i in range(frame):
 	# state.setQ(Q)
 	# state.setU(U)
 	for j in range(nCoordinates):
-		model.updCoordinateSet().get(j).setValue(state, q[nameCoordinates[j]][i], False)
-		model.updCoordinateSet().get(j).setSpeedValue(state, u[nameCoordinates[j]][i])
+		model.updCoordinateSet().get(j).setValue(state, q2[i,j], False)
+		model.updCoordinateSet().get(j).setSpeedValue(state, u2[i,j])
 	model.assemble(state)
 
 	# model.realizePosition(state)
@@ -199,7 +201,7 @@ for i in range(frame):
 		FFT[i,j]  = muscle.getFiberForceAlongTendon(state)
 		AFFT[i,j]  = muscle.getActiveFiberForceAlongTendon(state)
 		PFFT[i,j]  = muscle.getPassiveFiberForceAlongTendon(state)
-		# TF[i,j]   = muscle.getTendonForce(state)
+		TF[i,j]   = muscle.getTendonForce(state)
 		# print(muscle.getActiveFiberForce(state), muscle.getPassiveFiberForce(state))
 
 		indx = 0
@@ -212,6 +214,8 @@ for i in range(frame):
 # timeit muscle.getActiveFiberForce(state)
 # timeit muscle.getMaxIsometricForce() * muscle.getActiveForceLengthMultiplier(state) * muscle.getForceVelocityMultiplier(state)
 
+'''muscleForce = maxIsometricForce * (activity*activeForceLengthMultiplier*activeForceVelocityMultiplier + passiveForceLengthMultiplier)'''
+'''tendonForce == fiberForceAlongTendon == maxIsometricForce * (activeForceLengthMultiplier*activeForceVelocityMultiplier + passiveForceLengthMultiplier) * cosPennationAngle'''
 # plt.plot(time, MA[:, nameCoordinates.index('knee_angle_r'), nameMuscles.index('recfem_r')])
 # plt.show(block=False)
 
@@ -238,13 +242,13 @@ for i in range(frame):
 # plt.legend()
 # plt.show(block=False)
 
-# plt.plot(time, FF[:, nameMuscles.index('recfem_r')], label='fiber force', marker='o')
-# plt.plot(time, AFF[:, nameMuscles.index('recfem_r')], label='active fiber force')
-
+plt.plot(time, FFT[:, nameMuscles.index('recfem_r')], label='fiber force', marker='o')
+plt.plot(time, AFFT[:, nameMuscles.index('recfem_r')], label='active fiber force')
+plt.plot(time, TF[:, nameMuscles.index('recfem_r')], label='tendon force', marker='o')
 # plt.plot(time, AFFT[:, nameMuscles.index('gaslat_r')], label='gaslat')
 # plt.plot(time, AFFT[:, nameMuscles.index('gasmed_r')], label='gasmed')
-# plt.legend()
-# plt.show(block=False)
+plt.legend()
+plt.show(block=False)
 
 
 #####################################################################
@@ -273,14 +277,14 @@ def eqConstraint(a):  # A.dot(x) - b  == np.sum(A*x, axis=1) - b
 constraints = {'type':'eq', 'fun': eqConstraint}
 init = np.zeros(nMuscles) + 0.125 # initial guess of muscle activity (0.125)
 lb = np.zeros(nMuscles) # lower bound (0)
-ub = np.ones(nMuscles) # upper bound (1)
-# ub = [np.inf for _ in range(nMuscles)]
+# ub = np.ones(nMuscles) # upper bound (1)
+ub = [np.inf for _ in range(nMuscles)] # max activity >= 1
 
 for i in range(frame): #frame
 	print(f'Optimization ... {i+1}/{len(time)} ({round(time[i],3)})')
-	moment = np.vstack(list(m.values())).T[i,cBool] # 1D (nCoordinates)
+	moment = m2[i,cBool] # 1D (nCoordinates)
 	momentArm = MA[i,:,:] # 2D (nCoordinate, nMuscles)
-	volume = FFT[i,:] * FLT[i,:] # 1D (nMuscles)
+	volume = FF[i,:] * FL[i,:] # 1D (nMuscles)
 	activeFiberForceAlongTendon = AFFT[i,:] # 1D (nMuscles)
 	passiveFiberForceAlongTendon = PFFT[i,:] # 1D (nMuscles)
 
@@ -290,7 +294,7 @@ for i in range(frame): #frame
 	if out['status'] != 0: print(f"\t\t\tmessage: {out['message']} ({out['status']})")
 
 	activity[i,:] = out['x']
-	force[i,:] = activeFiberForceAlongTendon * out['x']
+	force[i,:] = activeFiberForceAlongTendon * out['x'] # + passiveFiberForceAlongTendon
 
 plt.figure()
 plt.plot(time, activity[:, nameMuscles.index('soleus_r')], label='soleus')
@@ -317,8 +321,6 @@ np.savetxt('muscle force.sto', np.hstack((time.reshape((-1,1)),force)), fmt='%.6
 
 
 
-plt.plot(AFFT[:,0])
-plt.show()
 ###################################################################################################
 ###################################################################################################
 ###################################################################################################
