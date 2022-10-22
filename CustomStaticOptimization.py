@@ -1,12 +1,11 @@
 # %%
-
-from tqdm import tqdm
 import opensim as osim
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from scipy.optimize import minimize, Bounds, LinearConstraint
+from scipy.optimize import minimize
 from scipy.signal import filtfilt, butter
+from tqdm import tqdm
 
 osim.Logger.setLevel(4)
 
@@ -64,8 +63,8 @@ def readExp(file, sep='\t', unit=None):
 	return data2
 
 
-m = readExp('inverse_dynamics.sto') #'' # moment
 q = readExp('inverse_kinematics.mot', unit='radian') # angle in radian
+m = readExp('inverse_dynamics.sto') #'' # moment
 cycle = [1.42, 2.16] # stance time
 
 model = osim.Model('scaled.osim')
@@ -112,12 +111,13 @@ for i in nameCoordinates:
 fc = 7 # cut-off frequency (Hz)
 b,a = butter(4, 2*fc/fs, btype='lowpass', output='ba')
 
+# get data in 2D array [frame, nCoordinate]
 q2 = np.empty((frame, nCoordinates))
 u2 = np.empty((frame, nCoordinates))
 m2 = np.empty((frame, nCoordinates))
 for i in range(nCoordinates):
 	q2[:,i] = filtfilt(b,a, q[nameCoordinates[i]][timeBool], padlen=10)
-	u2[:,i] = filtfilt(b,a, np.gradient(q2[:,i]), padlen=10)
+	u2[:,i] = filtfilt(b,a, np.gradient(q2[:,i]), padlen=10) # filtered before and after derivative
 	m2[:,i] = filtfilt(b,a, m[nameCoordinates[i]][timeBool], padlen=10)
 
 # remove pelvis (and any other?) coordinates
@@ -153,7 +153,7 @@ MA = np.empty((frame, sum(cBool), nMuscles)) # muscle moment arm
 
 # store muscle parameters
 # for i in tqdm(range(frame), desc='Muscle parameters'):
-for i in range(frame):
+# for i in range(frame):
 	print('Muscle Parameters ... at', time[i])
 	# Q = osim.Vector(); Q.resize(nCoordinates)
 	# U = osim.Vector(); U.resize(nCoordinates)
@@ -206,7 +206,7 @@ for i in range(frame):
 
 		indx = 0
 		for k in range(nCoordinates):
-			if cBool[k]:
+			if cBool[k]: # increases the speed
 				coordinate = coordinates.get(k)
 				MA[i,indx,j] = muscle.computeMomentArm(state, coordinate)
 				indx += 1
@@ -215,7 +215,8 @@ for i in range(frame):
 # timeit muscle.getMaxIsometricForce() * muscle.getActiveForceLengthMultiplier(state) * muscle.getForceVelocityMultiplier(state)
 
 '''muscleForce = maxIsometricForce * (activity*activeForceLengthMultiplier*activeForceVelocityMultiplier + passiveForceLengthMultiplier)'''
-'''tendonForce == fiberForceAlongTendon == maxIsometricForce * (activeForceLengthMultiplier*activeForceVelocityMultiplier + passiveForceLengthMultiplier) * cosPennationAngle'''
+'''tendonForce = fiberForceAlongTendon = maxIsometricForce * (activeForceLengthMultiplier*activeForceVelocityMultiplier + passiveForceLengthMultiplier) * cosPennationAngle'''
+'''muscleVolume = PCSA*fiberLength (PCSA = maxIsometricForce/specificTension) (specificTension = 61(N/cm2))'''
 # plt.plot(time, MA[:, nameCoordinates.index('knee_angle_r'), nameMuscles.index('recfem_r')])
 # plt.show(block=False)
 
@@ -259,10 +260,10 @@ plt.show(block=False)
 activity = np.empty((frame, nMuscles)) # muscle activity
 force = np.empty((frame, nMuscles)) # muscle force
 
-def objFun(a):  # sum of squared muscle activation
+def objFun(a):  # sum of squared muscle activation [volume weighted, power==3]
 	return np.sum(volume*(a)**3) # volume*
 
-'''Equality constraint means that the constraint function result is to be zero whereas inequality means that it is to be non-negative. '''
+'''Equality constraint means that the constraint function result is to be zero whereas inequality means that it is to be non-negative.'''
 
 def eqConstraint(a):  # A.dot(x) - b  == np.sum(A*x, axis=1) - b
 	'''equality constraint options:
