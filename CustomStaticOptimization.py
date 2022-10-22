@@ -128,28 +128,28 @@ for i in range(nCoordinates):
 			cBool[i] = False
 
 # https://simtk.org/api_docs/opensim/api_docs/classOpenSim_1_1Muscle.html#ac2ddf201cb1a2263f9a1c6baa3d7f314
-MIF= np.empty(nMuscles) # muscle maximum isometric force
-PAOFL = np.empty(nMuscles) # muscle pennation angle at optimal fiber length
-PA = np.empty(nMuscles) # muscle pennation angle
-CPA = np.empty((frame, nMuscles)) # cos of muscle pennation angle
-L  = np.empty((frame, nMuscles)) # muscle length
-FL = np.empty((frame, nMuscles)) # fiber length
-FLT = np.empty((frame, nMuscles)) # fiber length along tendon
-TL = np.empty((frame, nMuscles)) # tendon length
-OFL= np.empty(nMuscles) # optimal fiber length
-TSL= np.empty(nMuscles) # tendon slack length
-S  = np.empty((frame, nMuscles)) # muscle strength (fiber force)
-AS = np.empty((frame, nMuscles)) # muscle strength (active fiber force)
-FF = np.empty((frame, nMuscles)) # fiber force
-AFLM = np.empty((frame, nMuscles)) # active force length multiplier
-FVM = np.empty((frame, nMuscles)) #  force velocity multiplier
-AFF= np.empty((frame, nMuscles)) # active fiber force
-PFF= np.empty((frame, nMuscles)) # passive fiber force
-FFT= np.empty((frame, nMuscles)) # fiber force along tendon
-AFFT= np.empty((frame, nMuscles)) # active fiber force along tendon
-PFFT= np.empty((frame, nMuscles)) # passive fiber force along tendon
-TF = np.empty((frame, nMuscles)) # tendon force
-MA = np.empty((frame, sum(cBool), nMuscles)) # muscle moment arm
+MIF		= np.empty(nMuscles) # muscle maximum isometric force
+PAOFL	= np.empty(nMuscles) # muscle pennation angle at optimal fiber length
+PA		= np.empty(nMuscles) # muscle pennation angle
+CPA		= np.empty((frame, nMuscles)) # cos of muscle pennation angle
+L		= np.empty((frame, nMuscles)) # muscle length
+FL		= np.empty((frame, nMuscles)) # fiber length
+FLT		= np.empty((frame, nMuscles)) # fiber length along tendon
+TL		= np.empty((frame, nMuscles)) # tendon length
+OFL		= np.empty(nMuscles) # optimal fiber length
+TSL		= np.empty(nMuscles) # tendon slack length
+S		= np.empty((frame, nMuscles)) # muscle strength (fiber force)
+AS		= np.empty((frame, nMuscles)) # muscle strength (active fiber force)
+FF		= np.empty((frame, nMuscles)) # fiber force
+AFLM	= np.empty((frame, nMuscles)) # active force length multiplier
+FVM		= np.empty((frame, nMuscles)) #  force velocity multiplier
+AFF 	= np.empty((frame, nMuscles)) # active fiber force
+PFF 	= np.empty((frame, nMuscles)) # passive fiber force
+FFT 	= np.empty((frame, nMuscles)) # fiber force along tendon
+AFFT  	= np.empty((frame, nMuscles)) # active fiber force along tendon
+PFFT 	= np.empty((frame, nMuscles)) # passive fiber force along tendon
+TF 		= np.empty((frame, nMuscles)) # tendon force
+MA 		= np.empty((frame, sum(cBool), nMuscles)) # muscle moment arm (for specific coordinates only)
 
 # store muscle parameters
 # for i in tqdm(range(frame), desc='Muscle parameters'):
