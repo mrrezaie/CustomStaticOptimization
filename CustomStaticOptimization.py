@@ -3,7 +3,7 @@ import opensim as osim
 import numpy as np
 import matplotlib.pyplot as plt
 import os
-from scipy.optimize import minimize
+from scipy.optimize import minimize, Bounds
 from scipy.signal import filtfilt, butter
 from tqdm import tqdm
 
