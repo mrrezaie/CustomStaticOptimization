@@ -117,7 +117,7 @@ u2 = np.empty((frame, nCoordinates))
 m2 = np.empty((frame, nCoordinates))
 for i in range(nCoordinates):
 	q2[:,i] = filtfilt(b,a, q[nameCoordinates[i]][timeBool], padlen=10)
-	u2[:,i] = filtfilt(b,a, np.gradient(q2[:,i]), padlen=10) # filtered before and after derivative
+	u2[:,i] = filtfilt(b,a, np.gradient(q2[:,i], edge_order=2), padlen=10) # filtered before and after derivative
 	m2[:,i] = filtfilt(b,a, m[nameCoordinates[i]][timeBool], padlen=10)
 
 # remove pelvis (and any other?) coordinates
