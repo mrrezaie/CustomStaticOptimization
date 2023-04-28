@@ -1,10 +1,7 @@
 *.log
-muscle force.mot
-muscle activity.mot
-muscle activity.sto
-muscle force.sto
-state.sto
 *.pdf
-Gait2392_Simbody
-Geometry
-Rajagopal_walk
+output/_JointReaction_ReactionLoads+ext.sto
+output/_JointReaction_ReactionLoads-ext.sto
+test/Gait2392_simbody
+test/Geometry
+test/Rajagopal_walk
