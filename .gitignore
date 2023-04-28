@@ -1,5 +1,4 @@
 *.log
-*.pdf
 output/_JointReaction_ReactionLoads+ext.sto
 output/_JointReaction_ReactionLoads-ext.sto
 input/Gait2392_simbody
