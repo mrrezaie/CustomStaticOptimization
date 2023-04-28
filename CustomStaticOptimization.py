@@ -294,25 +294,29 @@ osim.STOFileAdapter().write(force,    'output/force.sto')
 
 # %%
 # plt.close('all')
-weighted = osim.TimeSeriesTable('jointReaction_w.sto')
-typical  = osim.TimeSeriesTable('jointReaction_t.sto')
-plt.figure(tight_layout=True)
-plt.plot(t,  -1*typical.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
-plt.plot(t, -1*weighted.getDependentColumn('walker_knee_l_y').to_numpy(), label='weighted')
+typical  = osim.TimeSeriesTable('output/jointReaction_t.sto')
+volume = osim.TimeSeriesTable('output/jointReaction_v.sto')
+weighted = osim.TimeSeriesTable('output/jointReaction_w.sto')
+t = typical.getIndependentColumn()
+plt.figure(tight_layout=True, figsize=(6,5))
+plt.plot(t, -1*typical.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
+plt.plot(t, -1*volume.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume-weighted')
+plt.plot(t, -1*weighted.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume-length-weighted')
 plt.title('Knee joint contact force')
 plt.legend()
 plt.xlabel('Time (s)')
 plt.ylabel('Force (N)')
-plt.savefig('output/KJCF.png')
+plt.savefig('output/KJCF.png', dpi=300)
+
+
 # %%
-
-
-
-weighted = osim.TimeSeriesTable('activity_w.sto')
-typical  = osim.TimeSeriesTable('activity_t.sto')
+typical  = osim.TimeSeriesTable('output/activity_t.sto')
+volume = osim.TimeSeriesTable('output/activity_v.sto')
+weighted = osim.TimeSeriesTable('output/activity_w.sto')
+t = typical.getIndependentColumn()
 
 plt.close('all')
-fig, (ax1,ax2) = plt.subplots(1,2, figsize=(10,5), tight_layout=True, sharey=True, sharex=True)
+fig, (ax1,ax2,ax3) = plt.subplots(1,3, figsize=(15,5), tight_layout=True, sharey=True, sharex=True)
 plt.suptitle('Muscle activity')
 
 ax1.plot(t, typical.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
@@ -324,15 +328,24 @@ ax1.set_xlabel('Time (s)')
 ax1.legend()
 
 
-ax2.plot(t, weighted.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-ax2.plot(t, weighted.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-ax2.plot(t, weighted.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-ax2.plot(t, weighted.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-ax2.set_title('Weighted Static Optimization')
+ax2.plot(t, volume.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
+ax2.plot(t, volume.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
+ax2.plot(t, volume.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
+ax2.plot(t, volume.getDependentColumn('perlong_l').to_numpy(), label='per long l')
+ax2.set_title('Volume-weighted Static Optimization')
 ax2.set_xlabel('Time (s)')
 ax2.legend()
 
-# plt.savefig('output/activity.png')
+
+ax3.plot(t, weighted.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
+ax3.plot(t, weighted.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
+ax3.plot(t, weighted.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
+ax3.plot(t, weighted.getDependentColumn('perlong_l').to_numpy(), label='per long l')
+ax3.set_title('Volume-length-weighted Static Optimization')
+ax3.set_xlabel('Time (s)')
+ax3.legend()
+
+plt.savefig('output/activity.png', dpi=300)
 
 
 
