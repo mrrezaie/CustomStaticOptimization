@@ -1,8 +1,8 @@
-modelName = 'test/scaled.osim'
-IKName    = 'test/inverse_kinematics.mot'
-IDName    = 'test/inverse_dynamics.sto'
-GRFName   = 'test/grf_walk.mot'
-ExtLName  = 'test/grf_walk.xml'
+modelName = 'input/scaled.osim'
+IKName    = 'input/inverse_kinematics.mot'
+IDName    = 'input/inverse_dynamics.sto'
+GRFName   = 'input/grf_walk.mot'
+ExtLName  = 'input/grf_walk.xml'
 
 import numpy as np
 import matplotlib.pyplot as plt

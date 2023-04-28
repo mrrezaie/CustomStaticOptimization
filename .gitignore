@@ -2,6 +2,6 @@
 *.pdf
 output/_JointReaction_ReactionLoads+ext.sto
 output/_JointReaction_ReactionLoads-ext.sto
-test/Gait2392_simbody
-test/Geometry
-test/Rajagopal_walk
+input/Gait2392_simbody
+input/Geometry
+input/Rajagopal_walk
