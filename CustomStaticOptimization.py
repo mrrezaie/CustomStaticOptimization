@@ -24,7 +24,7 @@ nMuscles = model.getMuscles().getSize()
 MIF = np.empty(nMuscles) # muscle maximum isometric force
 OFL = np.empty(nMuscles) # optimal fiber length
 TSL = np.empty(nMuscles) # tendon slack length
-# PA  = np.empty(nMuscles) # muscle pennation angle
+OPA = np.empty(nMuscles) # muscle pennation angle
 # ML  = np.empty(nMuscles) # muscle length
 
 for i,muscle in enumerate(model.updMuscles()):
@@ -33,17 +33,17 @@ for i,muscle in enumerate(model.updMuscles()):
 	MIF[i] = muscle.getMaxIsometricForce()
 	OFL[i] = muscle.getOptimalFiberLength()
 	TSL[i] = muscle.getTendonSlackLength()
-	# PA[i]  = muscle.getPennationAngleAtOptimalFiberLength()
+	OPA[i] = muscle.getPennationAngleAtOptimalFiberLength()
 	# ML[i]  = muscle.getLength(state)
 
 	muscle.set_ignore_activation_dynamics(False) # activation dynamics (have no impact)
 
 	if muscle.getTendonSlackLength() < muscle.getOptimalFiberLength():
 		muscle.set_ignore_tendon_compliance(True) # rigid tendon
-		print('rigid     tendon: ', muscle.getName())
+		print('rigid     tendon:', muscle.getName())
 	else:
 		muscle.set_ignore_tendon_compliance(False) # compliant tendon
-		print('compliant tendon: ', muscle.getName())
+		print('compliant tendon:', muscle.getName())
 
 state = model.initSystem()
 '''Rajagopal et al. 2016. Tendons were modeled as rigid when the 
@@ -111,8 +111,8 @@ for i,coordinate in enumerate(model.getCoordinateSet()):
 			ok[i] = False
 
 ########## Opimization parameters
-def objFun(a):  # sum of squared muscle activation
-	return np.sum(volume*length*(a)**2)
+def objFun(a): # sum of weighted squared muscle activation
+	return np.sum(weight*(a)**2)
 
 '''Equality constraint means that the constraint function result is to be zero 
 whereas inequality means that it is to be non-negative.'''
@@ -124,9 +124,25 @@ def eqConstraint(a):  # A.dot(x)-b  == np.sum(A*x,axis=1)-b
 # def eqConstraint2(a):  # gast activation constraint or EMG constraint
 # 	return a[nameMuscles.index('gasmed_r')] - a[nameMuscles.index('gaslat_r')]
 
-PCSA = MIF / 60 # Rajagopal et al. (2016) (N/cm^2)
-volume = PCSA * OFL
-length = OFL + TSL # ML
+
+PCSA   = MIF / 60     # specific tension used by Rajagopal et al. (2016) (N/cm^2)
+volume = PCSA * OFL   # muscle volume
+length = OFL + TSL    # muscle length
+ratio  = OFL / length # fiber to muscle-tendon length ratio
+weight = volume * length
+
+# labels = [i.getName() for i in model.getMuscles()]
+# sol = labels.index('soleus_r')
+# gsm = labels.index('gasmed_r')
+# gsl = labels.index('gaslat_r')
+# prl = labels.index('perlong_r')
+
+# print(f'Length: soleus: {length[sol]:.2f}, gasmed: {length[gsm]:.2f}, gaslat: {length[gsl]:.2f}, peroneusL: {length[prl]:.2f}')
+# print(f'Volume: soleus: {volume[sol]:.2f}, gasmed: {volume[gsm]:.2f}, gaslat: {volume[gsl]:.2f}, peroneusL: {volume[prl]:.2f}')
+# print(f'PCSA  : soleus: {PCSA[sol]:.2f}, gasmed: {PCSA[gsm]:.2f}, gaslat: {PCSA[gsl]:.2f}, peroneusL: {PCSA[prl]:.2f}')
+# print(f'OPA   : soleus: {OPA[sol]:.2f}, gasmed: {OPA[gsm]:.2f}, gaslat: {OPA[gsl]:.2f}, peroneusL: {OPA[prl]:.2f}')
+# print(f'Ratio : soleus: {ratio[sol]:.2f}, gasmed: {ratio[gsm]:.2f}, gaslat: {ratio[gsl]:.2f}, peroneusL: {ratio[prl]:.2f}')
+# print(f'Weight: soleus: {weight[sol]:.2f}, gasmed: {weight[gsm]:.2f}, gaslat: {weight[gsl]:.2f}, peroneusL: {weight[prl]:.2f}')
 
 constraints = ({'type':'eq', 'fun':eqConstraint})
 init = [0.1 for _ in range(nMuscles)] # initial guess of muscle activity (0.1)
@@ -175,10 +191,10 @@ for i,ii in enumerate(t):
 	##### Get muscle parameters at each time frame
 	# L   = np.empty(nMuscles) # muscle length
 	CPA = np.empty(nMuscles) # cos Pennation angle
-	FLM	= np.empty(nMuscles) # active force length multiplier
+	FLM = np.empty(nMuscles) # active force length multiplier
 	PFM = np.empty(nMuscles) # passive force multiplier
-	FVM	= np.empty(nMuscles) # force velocity multiplier
-	MA 	= np.zeros((sum(ok), nMuscles)) # muscle moment arm (for specific coordinates only)
+	FVM = np.empty(nMuscles) # force velocity multiplier
+	MA  = np.zeros((sum(ok), nMuscles)) # muscle moment arm (for specific coordinates only)
 
 	for j,muscle in enumerate(model.getMuscles()):
 		# muscle = osim.Millard2012EquilibriumMuscle.safeDownCast(muscle)
@@ -221,8 +237,8 @@ for i,ii in enumerate(t):
 	for j,muscle in enumerate(model.getMuscles()):
 		# muscle = osim.Millard2012EquilibriumMuscle.safeDownCast(muscle)
 		muscle.setActivation(state, out['x'][j])
-		muscle.computeEquilibrium(state)
 
+	model.equilibrateMuscles(state)
 	model.realizeAcceleration(state)
 
 	vec3 = osim.RowVectorVec3(model.getJointSet().getSize())
@@ -292,6 +308,27 @@ osim.STOFileAdapter().write(force,    'output/force.sto')
 
 
 
+plt.figure()
+# plt.plot(t, activity.getDependentColumn('soleus_r').to_numpy(), label='soleus_r')
+# plt.plot(t, activity.getDependentColumn('gasmed_r').to_numpy(), label='gast med_r')
+# plt.plot(t, activity.getDependentColumn('gaslat_r').to_numpy(), label='gast lat_r')
+# plt.plot(t, activity.getDependentColumn('perlong_r').to_numpy(), label='per_long_r')
+plt.plot(t, activity.getDependentColumn('soleus_l').to_numpy(), label='soleus_l')
+plt.plot(t, activity.getDependentColumn('gasmed_l').to_numpy(), label='gast med_l')
+plt.plot(t, activity.getDependentColumn('gaslat_l').to_numpy(), label='gast lat_l')
+plt.plot(t, activity.getDependentColumn('perlong_l').to_numpy(), label='per_long_l')
+plt.legend()
+plt.title('Muscle Activity (weighted cost function)')
+plt.xlabel('Time (s)')
+# plt.savefig('output/activity.png')
+plt.show(block=False)
+
+
+plt.figure()
+plt.plot(t, -1*jointReaction.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
+plt.show(block=False)
+
+
 # %%
 # plt.close('all')
 typical  = osim.TimeSeriesTable('output/jointReaction_t.sto')
@@ -306,7 +343,9 @@ plt.title('Knee joint contact force')
 plt.legend()
 plt.xlabel('Time (s)')
 plt.ylabel('Force (N)')
-plt.savefig('output/KJCF.png', dpi=300)
+
+# plt.savefig('output/KJCF.png', dpi=300)
+plt.show(block=False)
 
 
 # %%
@@ -327,7 +366,6 @@ ax1.set_title('Typical SOpt')
 ax1.set_xlabel('Time (s)')
 ax1.legend()
 
-
 ax2.plot(t, volume.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
 ax2.plot(t, volume.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
 ax2.plot(t, volume.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
@@ -335,7 +373,6 @@ ax2.plot(t, volume.getDependentColumn('perlong_l').to_numpy(), label='per long l
 ax2.set_title('Volume-weighted SOpt')
 ax2.set_xlabel('Time (s)')
 ax2.legend()
-
 
 ax3.plot(t, weighted.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
 ax3.plot(t, weighted.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
@@ -345,77 +382,26 @@ ax3.set_title('Volume-length-weighted SOpt')
 ax3.set_xlabel('Time (s)')
 ax3.legend()
 
-plt.savefig('output/activity.png', dpi=300)
+# plt.savefig('output/activity.png', dpi=300)
+plt.show(block=False)
 
 
+# %%
 
-# # plt.plot(t, activity.getDependentColumn('gaslat_r').to_numpy(), label='gast lat_r')
-# # plt.plot(t, activity.getDependentColumn('perlong_r').to_numpy(), label='per_long_r')
-# plt.plot(t, activity.getDependentColumn('soleus_l').to_numpy(), label='soleus_l')
-# plt.plot(t, activity.getDependentColumn('gasmed_l').to_numpy(), label='gast med_l')
-# plt.plot(t, activity.getDependentColumn('gaslat_l').to_numpy(), label='gast lat_l')
-# plt.plot(t, activity.getDependentColumn('perlong_l').to_numpy(), label='per_long_l')
-
-# plt.show(block=False)
-
-
-
-# plt.close('all')
-# fig, (ax1,ax2) = plt.subplots(1,2, figsize=(10,7), tight_layout=True, sharey=False, sharex=True)
-# plt.suptitle('Typical Static Optimization')
-
-# ax1 = plt.subplot(321)
-# ax1.plot(t, activity.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-# ax1.plot(t, activity.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-# ax1.plot(t, activity.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-# ax1.plot(t, activity.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-# ax1.set_title('Muscle Activity ')
-# ax1.set_xlabel('Time (s)')
-# ax1.legend()
-
-# ax3 = plt.subplot(323)
-# ax3.plot(t, activity.getDependentColumn('bflh_l').to_numpy(), label='bflh l')
-# ax3.plot(t, activity.getDependentColumn('bfsh_l').to_numpy(), label='bfsh l')
-# ax3.plot(t, activity.getDependentColumn('semimem_l').to_numpy(), label='semimem l')
-# ax3.plot(t, activity.getDependentColumn('semiten_l').to_numpy(), label='semiten l')
-# ax3.set_title('Hamstrings Muscle Activity')
-# ax3.set_xlabel('Time (s)')
-# ax3.legend()
-
-# ax4 = plt.subplot(325)
-# ax4.plot(t, activity.getDependentColumn('vasmed_l').to_numpy(), label='vasmed l')
-# ax4.plot(t, activity.getDependentColumn('vasint_l').to_numpy(), label='vasint l')
-# ax4.plot(t, activity.getDependentColumn('vaslat_l').to_numpy(), label='vaslat l')
-# ax4.plot(t, activity.getDependentColumn('recfem_l').to_numpy(), label='recfem l')
-# ax4.set_title('Quadriceps Muscle Activity')
-# ax4.set_xlabel('Time (s)')
-# ax4.legend()
-
-# ax2 = plt.subplot(122)
-# # ax2.plot(t, -1*jointReaction.getDependentColumn('walker_knee_l_x').to_numpy(), label='mx')
-# ax2.plot(t, -1*jointReaction.getDependentColumn('walker_knee_l_y').to_numpy())
-# # ax2.plot(t, -1*jointReaction.getDependentColumn('walker_knee_l_z').to_numpy(), label='mz')
-# ax2.set_title('Knee Joint Contact Force')
-# ax2.set_xlabel('Time (s)')
-# # ax2.legend()
-# # plt.title('Muscle Activity (weighted cost function)')
-# # plt.savefig('activity.png')
-# plt.show(block=False)
-
-# plt.figure()
-# # plt.plot(t, activity.getDependentColumn('soleus_r').to_numpy(), label='soleus_r')
-# # plt.plot(t, activity.getDependentColumn('gasmed_r').to_numpy(), label='gast med_r')
-# # plt.plot(t, activity.getDependentColumn('gaslat_r').to_numpy(), label='gast lat_r')
-# # plt.plot(t, activity.getDependentColumn('perlong_r').to_numpy(), label='per_long_r')
-# plt.plot(t, activity.getDependentColumn('soleus_l').to_numpy(), label='soleus_l')
-# plt.plot(t, activity.getDependentColumn('gasmed_l').to_numpy(), label='gast med_l')
-# plt.plot(t, activity.getDependentColumn('gaslat_l').to_numpy(), label='gast lat_l')
-# plt.plot(t, activity.getDependentColumn('perlong_l').to_numpy(), label='per_long_l')
-# plt.legend()
-# plt.title('Muscle Activity (weighted cost function)')
-# plt.xlabel('Time (s)')
-# # plt.savefig('output/activity.png')
-# plt.show(block=False)
+plt.figure()
+# plt.plot(t, activity.getDependentColumn('soleus_r').to_numpy(), label='soleus_r')
+# plt.plot(t, activity.getDependentColumn('gasmed_r').to_numpy(), label='gast med_r')
+# plt.plot(t, activity.getDependentColumn('gaslat_r').to_numpy(), label='gast lat_r')
+# plt.plot(t, activity.getDependentColumn('perlong_r').to_numpy(), label='per_long_r')
+plt.plot(t, activity.getDependentColumn('soleus_l').to_numpy(), label='soleus_l')
+plt.plot(t, activity.getDependentColumn('gasmed_l').to_numpy(), label='gast med_l')
+plt.plot(t, activity.getDependentColumn('gaslat_l').to_numpy(), label='gast lat_l')
+plt.plot(t, activity.getDependentColumn('perlong_l').to_numpy(), label='per_long_l')
+plt.legend()
+plt.title('Muscle Activity (weighted cost function)')
+plt.xlabel('Time (s)')
+# plt.savefig('output/activity.png')
+plt.show(block=False)
 
 # plt.figure()
 # # plt.plot(t, force.getDependentColumn('soleus_r').to_numpy(), label='soleus_r')
