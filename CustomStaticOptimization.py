@@ -129,20 +129,8 @@ PCSA   = MIF / 60     # specific tension used by Rajagopal et al. (2016) (N/cm^2
 volume = PCSA * OFL   # muscle volume
 length = OFL + TSL    # muscle length
 ratio  = OFL / length # fiber to muscle-tendon length ratio
-weight = volume * length
-
-# labels = [i.getName() for i in model.getMuscles()]
-# sol = labels.index('soleus_r')
-# gsm = labels.index('gasmed_r')
-# gsl = labels.index('gaslat_r')
-# prl = labels.index('perlong_r')
-
-# print(f'Length: soleus: {length[sol]:.2f}, gasmed: {length[gsm]:.2f}, gaslat: {length[gsl]:.2f}, peroneusL: {length[prl]:.2f}')
-# print(f'Volume: soleus: {volume[sol]:.2f}, gasmed: {volume[gsm]:.2f}, gaslat: {volume[gsl]:.2f}, peroneusL: {volume[prl]:.2f}')
-# print(f'PCSA  : soleus: {PCSA[sol]:.2f}, gasmed: {PCSA[gsm]:.2f}, gaslat: {PCSA[gsl]:.2f}, peroneusL: {PCSA[prl]:.2f}')
-# print(f'OPA   : soleus: {OPA[sol]:.2f}, gasmed: {OPA[gsm]:.2f}, gaslat: {OPA[gsl]:.2f}, peroneusL: {OPA[prl]:.2f}')
-# print(f'Ratio : soleus: {ratio[sol]:.2f}, gasmed: {ratio[gsm]:.2f}, gaslat: {ratio[gsl]:.2f}, peroneusL: {ratio[prl]:.2f}')
-# print(f'Weight: soleus: {weight[sol]:.2f}, gasmed: {weight[gsm]:.2f}, gaslat: {weight[gsl]:.2f}, peroneusL: {weight[prl]:.2f}')
+# weight = volume * length
+weight = PCSA / ratio
 
 constraints = ({'type':'eq', 'fun':eqConstraint})
 init = [0.1 for _ in range(nMuscles)] # initial guess of muscle activity (0.1)
@@ -330,38 +318,62 @@ plt.show(block=False)
 
 
 # %%
-# plt.close('all')
+plt.close('all')
 typical  = osim.TimeSeriesTable('output/jointReaction_t.sto')
 volume = osim.TimeSeriesTable('output/jointReaction_v.sto')
-weighted = osim.TimeSeriesTable('output/jointReaction_w.sto')
+volLength = osim.TimeSeriesTable('output/jointReaction_vl.sto')
+pcsaRatio = osim.TimeSeriesTable('output/jointReaction_pr.sto')
 t = typical.getIndependentColumn()
-plt.figure(tight_layout=True, figsize=(5,4))
-plt.plot(t, -1*typical.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
-plt.plot(t, -1*volume.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume-weighted')
-plt.plot(t, -1*weighted.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume-length-weighted')
-plt.title('Knee joint contact force')
-plt.legend()
-plt.xlabel('Time (s)')
-plt.ylabel('Force (N)')
 
-# plt.savefig('output/KJCF.png', dpi=300)
-plt.show(block=False)
+plt.close('all')
+fig, (ax1,ax2,ax3) = plt.subplots(1,3, figsize=(13,4.5), tight_layout=True, sharey=False, sharex=True)
+plt.suptitle('Joint Contact Force')
+
+ax1.plot(t, -1*typical.getDependentColumn('hip_l_y').to_numpy(), label='typical')
+ax1.plot(t, -1*volume.getDependentColumn('hip_l_y').to_numpy(), label='volume')
+ax1.plot(t, -1*volLength.getDependentColumn('hip_l_y').to_numpy(), label='volume*length')
+ax1.plot(t, -1*pcsaRatio.getDependentColumn('hip_l_y').to_numpy(), label='PCSA/ratio')
+ax1.set_title('Hip Joint')
+ax1.set_xlabel('Time (s)')
+ax1.legend()
+
+ax2.plot(t, -1*typical.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
+ax2.plot(t, -1*volume.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume')
+ax2.plot(t, -1*volLength.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume*length')
+ax2.plot(t, -1*pcsaRatio.getDependentColumn('walker_knee_l_y').to_numpy(), label='PCSA/ratio')
+ax2.set_title('Knee Joint')
+ax2.set_xlabel('Time (s)')
+ax2.legend()
+
+ax3.plot(t, -1*typical.getDependentColumn('ankle_l_y').to_numpy(), label='typical')
+ax3.plot(t, -1*volume.getDependentColumn('ankle_l_y').to_numpy(), label='volume')
+ax3.plot(t, -1*volLength.getDependentColumn('ankle_l_y').to_numpy(), label='volume*length')
+ax3.plot(t, -1*pcsaRatio.getDependentColumn('ankle_l_y').to_numpy(), label='PCSA/ratio')
+ax3.set_title('Ankle Joint')
+ax3.set_xlabel('Time (s)')
+ax3.legend()
+
+plt.savefig('output/KJCF.png', dpi=300)
+# plt.show(block=False)
 
 
 # %%
 typical  = osim.TimeSeriesTable('output/activity_t.sto')
 volume = osim.TimeSeriesTable('output/activity_v.sto')
-weighted = osim.TimeSeriesTable('output/activity_w.sto')
+volLength = osim.TimeSeriesTable('output/activity_vl.sto')
+pcsaRatio = osim.TimeSeriesTable('output/activity_pr.sto')
 t = typical.getIndependentColumn()
 
 plt.close('all')
-fig, (ax1,ax2,ax3) = plt.subplots(1,3, figsize=(13,4.5), tight_layout=True, sharey=True, sharex=True)
+# ((ax1,ax2),(ax3,ax4))
+fig, (ax1,ax2,ax3,ax4) = plt.subplots(1,4, figsize=(13,4.5), tight_layout=True, sharey=True, sharex=True)
 plt.suptitle('Muscle activity')
 
 ax1.plot(t, typical.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
 ax1.plot(t, typical.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
 ax1.plot(t, typical.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
 ax1.plot(t, typical.getDependentColumn('perlong_l').to_numpy(), label='per long l')
+ax1.plot(t, typical.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
 ax1.set_title('Typical SOpt')
 ax1.set_xlabel('Time (s)')
 ax1.legend()
@@ -370,20 +382,31 @@ ax2.plot(t, volume.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
 ax2.plot(t, volume.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
 ax2.plot(t, volume.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
 ax2.plot(t, volume.getDependentColumn('perlong_l').to_numpy(), label='per long l')
+ax2.plot(t, volume.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
 ax2.set_title('Volume-weighted SOpt')
 ax2.set_xlabel('Time (s)')
 ax2.legend()
 
-ax3.plot(t, weighted.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-ax3.plot(t, weighted.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-ax3.plot(t, weighted.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-ax3.plot(t, weighted.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-ax3.set_title('Volume-length-weighted SOpt')
+ax3.plot(t, volLength.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
+ax3.plot(t, volLength.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
+ax3.plot(t, volLength.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
+ax3.plot(t, volLength.getDependentColumn('perlong_l').to_numpy(), label='per long l')
+ax3.plot(t, volLength.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
+ax3.set_title('Volume*length-weighted SOpt')
 ax3.set_xlabel('Time (s)')
 ax3.legend()
 
-# plt.savefig('output/activity.png', dpi=300)
-plt.show(block=False)
+ax4.plot(t, pcsaRatio.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
+ax4.plot(t, pcsaRatio.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
+ax4.plot(t, pcsaRatio.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
+ax4.plot(t, pcsaRatio.getDependentColumn('perlong_l').to_numpy(), label='per long l')
+ax4.plot(t, pcsaRatio.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
+ax4.set_title('PCSA/ratio-weighted SOpt')
+ax4.set_xlabel('Time (s)')
+ax4.legend()
+
+plt.savefig('output/activity.png', dpi=300)
+# plt.show(block=False)
 
 
 # %%
@@ -397,6 +420,7 @@ plt.plot(t, activity.getDependentColumn('soleus_l').to_numpy(), label='soleus_l'
 plt.plot(t, activity.getDependentColumn('gasmed_l').to_numpy(), label='gast med_l')
 plt.plot(t, activity.getDependentColumn('gaslat_l').to_numpy(), label='gast lat_l')
 plt.plot(t, activity.getDependentColumn('perlong_l').to_numpy(), label='per_long_l')
+plt.plot(t, activity.getDependentColumn('tfl_l').to_numpy(), label='tflg_l')
 plt.legend()
 plt.title('Muscle Activity (weighted cost function)')
 plt.xlabel('Time (s)')
