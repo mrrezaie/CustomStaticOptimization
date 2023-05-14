@@ -127,8 +127,8 @@ def eqConstraint(a):  # A.dot(x)-b  == np.sum(A*x,axis=1)-b
 
 PCSA   = MIF / 60     # specific tension used by Rajagopal et al. (2016) (N/cm^2)
 volume = PCSA * OFL   # muscle volume
-length = OFL + TSL    # muscle length
-ratio  = OFL / length # fiber to muscle-tendon length ratio
+length = OFL*np.cos(OPA) + TSL    # muscle length
+ratio  = OFL*np.cos(OPA) / length # fiber to muscle-tendon length ratio
 # weight = volume * length
 # weight = PCSA / ratio
 weight = volume / ratio
