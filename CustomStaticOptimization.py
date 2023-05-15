@@ -4,6 +4,9 @@ IDName    = 'input/inverse_dynamics.sto'
 GRFName   = 'input/grf_walk.mot'
 ExtLName  = 'input/grf_walk.xml'
 
+exclude = ['knee_angle_l_beta', 'knee_angle_l_beta', \
+           'subtalar_r', 'subtalar_l', 'mtp_r', 'mtp_l']
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -18,14 +21,70 @@ cycle = [0.86, 1.57] # stance time Rajagopal
 model = osim.Model(modelName)
 state = model.initSystem()
 
-########## 
-nMuscles = model.getMuscles().getSize()
+nCoordinates    = model.getCoordinateSet().getSize()
+nameCoordinates = [coordinate.getName() for coordinate in model.getCoordinateSet()]
+nMuscles        = model.getMuscles().getSize()
+nameMuscles     = [muscle.getName() for muscle in model.getMuscles()]
+
+########## find muscles actuate coordinates
+'''test three ranges [min, inter, and max] for each coordinate to see 
+if there is any change at muscles length with a threshold of 0.1 mm 
+(sum of absolute differences)'''
+
+# coordinate = model.getCoordinateSet().get('knee_angle_r')
+coordinateMuscle = dict()
+for coordinate in model.getCoordinateSet():
+	# criteria to include only free coordinates
+	c1 = coordinate.get_locked()==False # unlocked
+	c2 = coordinate.getMotionType()!=3  # not coupled
+	c3 = coordinate.getJoint().getName() not in exclude # not excluded
+	if (c1 and c2 and c3):
+		# muscles length in default coordinate pose
+		length0 = [muscle.getLength(state) for muscle in model.getMuscles()]
+
+		r0 = coordinate.getDefaultValue()
+		r1 = coordinate.getRangeMin() # min range
+		r2 = coordinate.getRangeMax() # max range
+		r3 = (r1+r2)/2       # intermediate range
+		length = list()
+		for j in [r1,r2,r3]:
+			coordinate.setValue(state, j)
+			model.realizePosition(state)
+			length.append([muscle.getLength(state) for muscle in model.getMuscles()])
+		# changes in muscle length (mm)
+		dl = 1000 * (np.array(length) - length0) # 2D (3,nMuscles)
+		ok = np.sum(np.abs(dl), axis=0)>1e-1 # sum of absolute difference
+		coordinateMuscle[coordinate.getName()] = np.array(nameMuscles)[ok].tolist()
+		coordinate.setValue(state, r0) # back to default 
+	else:
+		coordinateMuscle[coordinate.getName()] = []
+
+# 'knee_angle_r': ['bflh_r', 'bfsh_r', 'gaslat_r', 'gasmed_r', 'grac_r', 'recfem_r', 'sart_r', 
+                 # 'semimem_r', 'semiten_r', 'tfl_r', 'vasint_r', 'vaslat_r', 'vasmed_r']
+
+muscleCoordinate  = dict()
+empty = list() # empty or excluded coordinates
+for coordinate,muscles in coordinateMuscle.items():
+	if len(muscles)>0:
+		for muscle in muscles: # each muscle
+			if muscle not in muscleCoordinate.keys():
+				muscleCoordinate[muscle] = list()
+			muscleCoordinate[muscle].append(coordinate)
+	else:
+		empty.append(coordinate)
+# 'gaslat_l': ['knee_angle_l', 'ankle_angle_l', 'subtalar_angle_l']
+
+# boolean to exclude specific coordinates
+ok = [True] * nCoordinates # coordinates boolean
+for i,coordinate in enumerate(nameCoordinates):
+	if coordinate in empty:
+		ok[i] = False
+
 
 MIF = np.empty(nMuscles) # muscle maximum isometric force
 OFL = np.empty(nMuscles) # optimal fiber length
 TSL = np.empty(nMuscles) # tendon slack length
 OPA = np.empty(nMuscles) # muscle pennation angle
-# ML  = np.empty(nMuscles) # muscle length
 
 for i,muscle in enumerate(model.updMuscles()):
 	# muscle = osim.Millard2012EquilibriumMuscle.safeDownCast(muscles.get(i))
@@ -34,7 +93,6 @@ for i,muscle in enumerate(model.updMuscles()):
 	OFL[i] = muscle.getOptimalFiberLength()
 	TSL[i] = muscle.getTendonSlackLength()
 	OPA[i] = muscle.getPennationAngleAtOptimalFiberLength()
-	# ML[i]  = muscle.getLength(state)
 
 	muscle.set_ignore_activation_dynamics(False) # activation dynamics (have no impact)
 
@@ -103,13 +161,6 @@ for i in q.getColumnLabels():
 # osim.STOFileAdapter().write(u, 'u.sto')
 # osim.STOFileAdapter().write(m, 'm.sto')
 
-# remove pelvis (and any other?) coordinates
-ok = [True] * model.getCoordinateSet().getSize() # coordinates boolean
-for i,coordinate in enumerate(model.getCoordinateSet()):
-	for j in ['pelvis', 'lumbar', 'beta', 'subtalar', 'mtp']:
-		if j in coordinate.getName():
-			ok[i] = False
-
 ########## Opimization parameters
 def objFun(a): # sum of weighted squared muscle activation
 	return np.sum(weight*(a)**2)
@@ -124,7 +175,7 @@ def eqConstraint(a):  # A.dot(x)-b  == np.sum(A*x,axis=1)-b
 # def eqConstraint2(a):  # gast activation constraint or EMG constraint
 # 	return a[nameMuscles.index('gasmed_r')] - a[nameMuscles.index('gaslat_r')]
 
-
+# weighting
 PCSA   = MIF / 60     # specific tension used by Rajagopal et al. (2016) (N/cm^2)
 volume = PCSA * OFL   # muscle volume
 length = OFL*np.cos(OPA) + TSL    # muscle length
@@ -183,7 +234,7 @@ for i,ii in enumerate(t):
 	FLM = np.empty(nMuscles) # active force length multiplier
 	PFM = np.empty(nMuscles) # passive force multiplier
 	FVM = np.empty(nMuscles) # force velocity multiplier
-	MA  = np.zeros((sum(ok), nMuscles)) # muscle moment arm (for specific coordinates only)
+	MA  = np.zeros((nCoordinates, nMuscles)) # force velocity multiplier
 
 	for j,muscle in enumerate(model.getMuscles()):
 		# muscle = osim.Millard2012EquilibriumMuscle.safeDownCast(muscle)
@@ -196,19 +247,16 @@ for i,ii in enumerate(t):
 		PFM[j] = muscle.getPassiveForceMultiplier(state)
 		FVM[j] = muscle.getForceVelocityMultiplier(state)
 
-		indx = 0
-		for k,coordinate in enumerate(model.getCoordinateSet()):
-			if ok[k]: # increases the speed
-				temp = muscle.computeMomentArm(state, coordinate)
-				if abs(temp)>1e-4 : MA[indx,j]=temp # ignore values less than 0.1 mm
-				indx += 1
+		for coordinate in muscleCoordinate[muscle.getName()]:
+			indx = nameCoordinates.index(coordinate)
+			MA[indx,j] = muscle.computeMomentArm(state, model.getCoordinateSet().get(coordinate))
 
 	##### Optimization
 	# moment = m.getRowAtIndex(i).to_numpy()[ok] # THERE IS A BUG HERE
 	moment = osim.RowVector(m.getRowAtIndex(i)).to_numpy()[ok] # 1D (nCoordinates)
-	momentArm = MA # 2D (nCoordinate, nMuscles)
+	momentArm = MA[ok,:] # 2D (nCoordinate, nMuscles)
 	activeElement  = MIF*FLM*FVM*CPA # along tendon, 1D (nMuscles)
-	passiveElement = MIF*PFM*CPA # along tendon, 1D (nMuscles)
+	passiveElement = MIF*PFM*CPA     # along tendon, 1D (nMuscles)
 
 	out = minimize(objFun, x0=init, method='SLSQP', bounds=Bounds(lb,ub), \
 				   constraints=constraints, options={'maxiter':500}, tol=1e-06)
@@ -230,11 +278,13 @@ for i,ii in enumerate(t):
 	model.equilibrateMuscles(state)
 	model.realizeAcceleration(state)
 
-	vec3 = osim.RowVectorVec3(model.getJointSet().getSize())
+	# vec3 = osim.RowVectorVec3(model.getJointSet().getSize())
+	temp = list()
 	for j,joint in enumerate(model.getJointSet()):
 		reactionGround = joint.calcReactionOnChildExpressedInGround(state)
-		vec3[j] = ground.expressVectorInAnotherFrame(state, reactionGround.get(1), joint.getChildFrame())
-	jointReaction.appendRow(ii, vec3)
+		temp.append(ground.expressVectorInAnotherFrame(state, reactionGround.get(1), joint.getChildFrame()))
+		# vec3[j] = ground.expressVectorInAnotherFrame(state, reactionGround.get(1), joint.getChildFrame())
+	jointReaction.appendRow(ii, osim.RowVectorVec3(temp))
 
 
 print(f'Optimization ... finished in {time()-ts:.2f} s')
