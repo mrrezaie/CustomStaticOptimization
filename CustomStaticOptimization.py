@@ -25,6 +25,7 @@ nCoordinates    = model.getCoordinateSet().getSize()
 nameCoordinates = [coordinate.getName() for coordinate in model.getCoordinateSet()]
 nMuscles        = model.getMuscles().getSize()
 nameMuscles     = [muscle.getName() for muscle in model.getMuscles()]
+nameJoints      = [joint.getName() for joint in model.getJointSet()]
 
 ########## find muscles actuate coordinates
 '''test three ranges [min, inter, and max] for each coordinate to see 
@@ -134,10 +135,10 @@ t = q.getIndependentColumn() # time
 ########## calculate speed
 GCVS = osim.GCVSplineSet(q)
 # GCVS.evaluate(column,derivative,time)
-firstDerivative = osim.StdVectorInt(); firstDerivative.push_back(0)
-u = osim.TimeSeriesTable(osim.StdVectorDouble(t))
+d1 = osim.StdVectorInt(); d1.push_back(0) # first derivative
+u = osim.TimeSeriesTable(t) # StdVectorDouble
 for i in q.getColumnLabels():
-	speed = [GCVS.get(i).calcDerivative(firstDerivative, osim.Vector(1,j)) for j in t]
+	speed = [GCVS.get(i).calcDerivative(d1, osim.Vector(1,j)) for j in t]
 	u.appendColumn(i, osim.Vector(speed))
 u.addTableMetaDataString('inDegrees', 'no')
 u.addTableMetaDataString('nColumns', str(u.getNumColumns()))
@@ -191,13 +192,11 @@ ub   = [1.0 for _ in range(nMuscles)] # max activity >= 1
 
 ########## Output variables
 activity = osim.TimeSeriesTable()
-activity.addTableMetaDataString('inDegrees', 'no')
-activity.setColumnLabels([joint.getName() for joint in model.getMuscles()]) # StdVectorString
+activity.setColumnLabels(nameMuscles) # StdVectorString
 force = activity.clone()
 
-jointReaction = osim.TimeSeriesTableVec3()
-jointReaction.addTableMetaDataString('inDegrees', 'no')
-jointReaction.setColumnLabels([joint.getName() for joint in model.getJointSet()]) # StdVectorString
+reaction = osim.TimeSeriesTableVec3()
+reaction.setColumnLabels(nameJoints) # StdVectorString
 ground = model.getGround()
 
 ########## Add external load file to the model
@@ -284,7 +283,7 @@ for i,ii in enumerate(t):
 		reactionGround = joint.calcReactionOnChildExpressedInGround(state)
 		temp.append(ground.expressVectorInAnotherFrame(state, reactionGround.get(1), joint.getChildFrame()))
 		# vec3[j] = ground.expressVectorInAnotherFrame(state, reactionGround.get(1), joint.getChildFrame())
-	jointReaction.appendRow(ii, osim.RowVectorVec3(temp))
+	reaction.appendRow(ii, osim.RowVectorVec3(temp))
 
 
 print(f'Optimization ... finished in {time()-ts:.2f} s')
@@ -332,15 +331,13 @@ print(f'Optimization ... finished in {time()-ts:.2f} s')
 # 		coordinate.setSpeedValue(state, speed[j])
 
 ########## write output to sto files
-jointReaction = jointReaction.flatten(['_x','_y','_z'])
-jointReaction.addTableMetaDataString('nColumns', str(jointReaction.getNumColumns()))
-jointReaction.addTableMetaDataString('nRows',    str(jointReaction.getNumRows()))
-activity.addTableMetaDataString('nColumns', str(activity.getNumColumns()))
-activity.addTableMetaDataString('nRows',    str(activity.getNumRows()))
-force.addTableMetaDataString('nColumns', str(force.getNumColumns()))
-force.addTableMetaDataString('nRows',    str(force.getNumRows()))
+reaction = reaction.flatten(['_x','_y','_z'])
+for table in [reaction,activity,force]:
+	table.addTableMetaDataString('inDegrees', 'no')
+	table.addTableMetaDataString('nColumns', str(table.getNumColumns()))
+	table.addTableMetaDataString('nRows',    str(force.getNumRows()))
 
-osim.STOFileAdapter().write(jointReaction, 'output/jointReaction.sto')
+osim.STOFileAdapter().write(reaction, 'output/jointReaction.sto')
 osim.STOFileAdapter().write(activity, 'output/activity.sto')
 osim.STOFileAdapter().write(force,    'output/force.sto')
 
@@ -364,7 +361,7 @@ plt.show(block=False)
 
 
 plt.figure()
-plt.plot(t, -1*jointReaction.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
+plt.plot(t, -1*reaction.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
 plt.show(block=False)
 
 
