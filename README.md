@@ -34,6 +34,10 @@ TSL: tendon slack length
 
 $`\cos \alpha`$: cos pennation angle
 
+V: muscle volume
+
+R: muscle to muscle-tendon length ratio
+
 F0: typical cost function
 
 F1: muscle volume-weighted cost function
