@@ -82,10 +82,10 @@ for i,coordinate in enumerate(nameCoordinates):
 		ok[i] = False
 
 
-MIF = np.empty(nMuscles) # muscle maximum isometric force
+MIF = np.empty(nMuscles) # maximum isometric force
 OFL = np.empty(nMuscles) # optimal fiber length
 TSL = np.empty(nMuscles) # tendon slack length
-OPA = np.empty(nMuscles) # muscle pennation angle
+OPA = np.empty(nMuscles) # pennation angle at optimal fiber length
 
 for i,muscle in enumerate(model.updMuscles()):
 	# muscle = osim.Millard2012EquilibriumMuscle.safeDownCast(muscles.get(i))
@@ -120,7 +120,8 @@ ignoreTendonCompliance     computeEquilibrium     ForceVelocityMultiplier
 # PCSA = max isometric force / 60
 # muscle volume = muscle length * PCSA
 # muscle stress = muscle force / PCSA
-# contractile element = activity * max isometric force * active force-length multiplier * force-velocity multiplier
+# contractile element = activity * max isometric force * 
+                        active force-length multiplier * force-velocity multiplier
 # parallel elasic element = max isometric force * passive force-length multiplier
 # fiber force along tendon = (contractile element + parallel elasic element) * cos pennation angle
 '''
