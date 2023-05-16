@@ -11,18 +11,18 @@ Muscles activity
 Joint contact force
 ![sample](output/KJCF.png)
 
-# Math
+# Equations
 $$ PCSA = {MIF \over 60} $$
 
 $$ V = OFL * PCSA $$
 
 $$ R = {{OFL * \cos \alpha} \over {OFL * \cos \alpha + TSL}} $$
 
-$$ F_0 = min\sum_{i=1}^{N nuscles} a_i^2 $$
+$$ F_0 = min\sum_{i=1}^{N muscles} a_i^2 $$
 
-$$ F_1 = min \sum_{i=1}^{N nuscles} V_i * a_i^2 $$
+$$ F_1 = min \sum_{i=1}^{N muscles} V_i * a_i^2 $$
 
-$$ F_2 = min \sum_{i=1}^{N nuscles} {V_i \over R_i} * a_i^2 $$
+$$ F_2 = min \sum_{i=1}^{N muscles} {V_i \over R_i} * a_i^2 $$
 
 PCSA: physiological cross-sectional area
 
