@@ -22,7 +22,9 @@ $$ F_0 = min\sum_{i=1}^{N muscles} a_i^2 $$
 
 $$ F_1 = min \sum_{i=1}^{N muscles} V_i * a_i^2 $$
 
-$$ F_2 = min \sum_{i=1}^{N muscles} {V_i \over R_i} * a_i^2 $$
+$$ F_2 = min \sum_{i=1}^{N muscles} {1 \over R_i} * a_i^2 $$
+
+$$ F_3 = min \sum_{i=1}^{N muscles} {V_i \over R_i} * a_i^2 $$
 
 PCSA: physiological cross-sectional area
 
@@ -32,7 +34,11 @@ OFL: optimal fiber length
 
 TSL: tendon slack length
 
-$`\cos \alpha`$: cos pennation angle
+$`\alpha`$: pennation angle
+
+$`OFL * \cos \alpha`$: fiber length along tendon
+
+$`OFL * \cos \alpha + TSL`$: muscle-tendon length
 
 V: muscle volume
 
@@ -42,4 +48,6 @@ F0: typical cost function
 
 F1: muscle volume-weighted cost function
 
-F2: muscle volume/ratio-weighted cost function
+F2: 1/ratio-weighted cost function
+
+F3: muscle volume/ratio-weighted cost function
