@@ -22,7 +22,7 @@ $$ F_0 = min\sum_{i=1}^{N muscles} a_i^2 $$
 
 $$ F_1 = min \sum_{i=1}^{N muscles} V_i * a_i^2 $$
 
-$$ F_2 = min \sum_{i=1}^{N muscles} {1 \over R_i} * a_i^2 $$
+$$ F_2 = min \sum_{i=1}^{N muscles} {a_i^2 \over R_i} $$
 
 $$ F_3 = min \sum_{i=1}^{N muscles} {V_i \over R_i} * a_i^2 $$
 
