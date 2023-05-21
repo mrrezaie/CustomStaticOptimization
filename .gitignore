@@ -1,11 +1,12 @@
 *.log
-output/_JointReaction_ReactionLoads+ext.sto
-output/_JointReaction_ReactionLoads-ext.sto
+
+output/_JointReaction_ReactionLoads*.sto
 output/activity_*.sto
 output/force_*.sto
 output/jointReaction_*.sto
-output/activity*.png
-output/KJCF*.png
+
+output/activity_*.png
+output/KJCF_*.png
 
 input/Gait2392_simbody
 input/Geometry
