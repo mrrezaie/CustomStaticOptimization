@@ -177,6 +177,7 @@ def eqConstraint(a):  # A.dot(x)-b  == np.sum(A*x,axis=1)-b
 # def eqConstraint2(a):  # gast activation constraint or EMG constraint
 # 	return a[nameMuscles.index('gasmed_r')] - a[nameMuscles.index('gaslat_r')]
 
+
 # weighting
 PCSA   = MIF / 60     # specific tension used by Rajagopal et al. (2016) (N/cm^2)
 volume = PCSA * OFL   # muscle volume
@@ -187,6 +188,18 @@ ratio  = OFL*np.cos(OPA) / length # fiber to muscle-tendon length ratio
 weight = volume / ratio
 # weight = 1 / ratio
 
+# store weights as a CSV file
+head = ['muscles','MIF','PCSA','OFL','TSL','LENGTH','VOLUME','1/RATIO','VOLUME/RATIO']
+import csv
+with open('output/weight.csv', mode='w', newline='') as f:
+	writer = csv.writer(f)
+	writer.writerows([head])
+	out = [nameMuscles, np.round(MIF,3), np.round(PCSA,3), np.round(OFL,3), \
+	       np.round(TSL,3), np.round(length,3), np.round(volume,3), np.round(1/ratio,3), \
+	       np.round(volume/ratio,3)]
+	writer.writerows(zip(*out))
+
+# bounds, constraints and initial values
 constraints = ({'type':'eq', 'fun':eqConstraint})
 init = [0.1 for _ in range(nMuscles)] # initial guess of muscle activity (0.1)
 lb   = [0.0 for _ in range(nMuscles)] # lower bound (0)
