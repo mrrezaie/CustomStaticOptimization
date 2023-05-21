@@ -1,10 +1,10 @@
 # Output
 
 Muscles activity
-![sample](output/activity.png)
+![sample](activity.png)
 
 Joint contact force
-![sample](output/KJCF.png)
+![sample](KJCF.png)
 
 # Equations
 $$ PCSA = {MIF \over 60} $$
