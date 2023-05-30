@@ -5,11 +5,17 @@ The input files are data associated with Rajagopal model's walking simulation.
 
 Typical Static Optimization, i.e., minimize the sum of squared muscle activation, with and without weighted cost function:
 
-Muscles activity
-![sample](output/activity3.png)
+Muscles activity (power=2)
+![sample](output/activity_p2.png)
 
-Joint contact force
-![sample](output/KJCF3.png)
+Muscles activity (power=3)
+![sample](output/activity_p3.png)
+
+Joint contact force (power=2)
+![sample](output/KJCF_p2.png)
+
+Joint contact force (power=3)
+![sample](output/KJCF_p3.png)
 
 # Equations
 $$ PCSA = {MIF \over 60} $$

@@ -13,7 +13,7 @@ import os
 from scipy.optimize import minimize, Bounds
 from time import time
 import opensim as osim
-osim.Logger.setLevel(4)
+# osim.Logger.setLevel(4)
 
 cycle = [0.86, 1.57] # stance time Rajagopal
 # cycle = [0.6, 1.4] # stance time Gait2392
@@ -96,13 +96,14 @@ for i,muscle in enumerate(model.updMuscles()):
 	OPA[i] = muscle.getPennationAngleAtOptimalFiberLength()
 
 	muscle.set_ignore_activation_dynamics(False) # activation dynamics (have no impact)
+	muscle.set_ignore_tendon_compliance(False) # compliant tendon
 
-	if muscle.getTendonSlackLength() < muscle.getOptimalFiberLength():
-		muscle.set_ignore_tendon_compliance(True) # rigid tendon
-		print('rigid     tendon:', muscle.getName())
-	else:
-		muscle.set_ignore_tendon_compliance(False) # compliant tendon
-		print('compliant tendon:', muscle.getName())
+	# if muscle.getTendonSlackLength() < muscle.getOptimalFiberLength():
+	# 	muscle.set_ignore_tendon_compliance(True) # rigid tendon
+	# 	print('rigid     tendon:', muscle.getName())
+	# else:
+	# 	muscle.set_ignore_tendon_compliance(False) # compliant tendon
+	# 	print('compliant tendon:', muscle.getName())
 
 state = model.initSystem()
 '''Rajagopal et al. 2016. Tendons were modeled as rigid when the 
@@ -183,21 +184,47 @@ PCSA   = MIF / 60     # specific tension used by Rajagopal et al. (2016) (N/cm^2
 volume = PCSA * OFL   # muscle volume
 length = OFL*np.cos(OPA) + TSL    # muscle length
 ratio  = OFL*np.cos(OPA) / length # fiber to muscle-tendon length ratio
+tenR   = TSL / length
+# weight = np.zeros(nMuscles)
+# weight = np.ones(nMuscles)
 # weight = volume * length
 # weight = PCSA / ratio
-weight = volume / ratio
+# weight = volume / ratio
 # weight = 1 / ratio
+# weight = TSL / ratio
+# weight = volume
+# weight = volume * TSL
+# weight = volume * tenR
+# weight = PCSA * tenR
+# weight = PCSA * ratio
+# weight = tenR # good but too musch KJCF
+# weight = TSL
+# weight = OFL
+# weight = 1 / OFL
+# weight = OFL * TSL
+# weight = OFL * np.sin(OPA) * TSL
+weight = TSL / OFL # good one particularly with p3
+# weight = TSL / OFL*np.cos(OPA)
+# weight = PCSA * TSL / length
+# weight = PCSA
+# weight = PCSA / OFL
+# weight = PCSA * TSL / OFL # bad in Gmin
+# weight = PCSA * TSL
+# weight = (np.sqrt(PCSA)*TSL)
+# weight = np.sqrt(PCSA) * TSL / OFL
+# weight = np.sqrt(PCSA) * TSL / length
 
 # store weights as a CSV file
-head = ['muscles','MIF','PCSA','OFL','TSL','LENGTH','VOLUME','1/RATIO','VOLUME/RATIO']
-import csv
-with open('output/weight.csv', mode='w', newline='') as f:
-	writer = csv.writer(f)
-	writer.writerows([head])
-	out = [nameMuscles, np.round(MIF,3), np.round(PCSA,3), np.round(OFL,3), \
-	       np.round(TSL,3), np.round(length,3), np.round(volume,3), np.round(1/ratio,3), \
-	       np.round(volume/ratio,3)]
-	writer.writerows(zip(*out))
+head = ['muscles','MIF','PCSA','OFL','TSL','LENGTH', \
+        'VOLUME','RATIO','1/RATIO','PCSA/RATIO','VOLUME/RATIO']
+# import csv
+# with open('output/weight.csv', mode='w', newline='') as f:
+# 	writer = csv.writer(f)
+# 	writer.writerows([head])
+# 	out = [nameMuscles, np.round(MIF,3), np.round(PCSA,3), np.round(OFL,3), \
+# 	       np.round(TSL,3), np.round(length,3), np.round(volume,3), np.round(ratio,3), \
+# 	       np.round(1/ratio,3), np.round(PCSA/ratio,3), np.round(volume/ratio,3)]
+# 	writer.writerows(zip(*out))
 
 # bounds, constraints and initial values
 constraints = ({'type':'eq', 'fun':eqConstraint})
@@ -269,7 +296,8 @@ for i,ii in enumerate(t):
 	# moment = m.getRowAtIndex(i).to_numpy()[ok] # THERE IS A BUG HERE
 	moment = osim.RowVector(m.getRowAtIndex(i)).to_numpy()[ok] # 1D (nCoordinates)
 	momentArm = MA[ok,:] # 2D (nCoordinate, nMuscles)
-	activeElement  = MIF*FLM*FVM*CPA # along tendon, 1D (nMuscles)
+	# in case of tendon elasticity, FVM is already one
+	activeElement  = MIF*FLM*CPA # along tendon, 1D (nMuscles)
 	passiveElement = MIF*PFM*CPA     # along tendon, 1D (nMuscles)
 
 	out = minimize(objFun, x0=init, method='SLSQP', bounds=Bounds(lb,ub), \
@@ -292,12 +320,12 @@ for i,ii in enumerate(t):
 	model.equilibrateMuscles(state)
 	model.realizeAcceleration(state)
 
-	# vec3 = osim.RowVectorVec3(model.getJointSet().getSize())
 	temp = list()
 	for j,joint in enumerate(model.getJointSet()):
 		reactionGround = joint.calcReactionOnChildExpressedInGround(state)
-		temp.append(ground.expressVectorInAnotherFrame(state, reactionGround.get(1), joint.getChildFrame()))
-		# vec3[j] = ground.expressVectorInAnotherFrame(state, reactionGround.get(1), joint.getChildFrame())
+		reactionForce  = reactionGround.get(1) # 0==moment, 1==force
+		jointChildBody = joint.getChildFrame().findBaseFrame() # body frame not joint frame
+		temp.append(ground.expressVectorInAnotherFrame(state, reactionForce, jointChildBody))
 	reaction.appendRow(ii, osim.RowVectorVec3(temp))
 
 
@@ -347,18 +375,26 @@ print(f'Optimization ... finished in {time()-ts:.2f} s')
 
 ########## write output to sto files
 reaction = reaction.flatten(['_x','_y','_z'])
-for table in [reaction,activity,force]:
+
+state = osim.TimeSeriesTable(t)
+for i in q.getColumnLabels():
+	state.appendColumn(i, q.getDependentColumn(i))
+for i in activity.getColumnLabels():
+	state.appendColumn(i+'.activation', activity.getDependentColumn(i))
+
+for table in [reaction,activity,force,state]:
 	table.addTableMetaDataString('inDegrees', 'no')
 	table.addTableMetaDataString('nColumns', str(table.getNumColumns()))
-	table.addTableMetaDataString('nRows',    str(force.getNumRows()))
+	table.addTableMetaDataString('nRows',    str(table.getNumRows()))
 
-osim.STOFileAdapter().write(reaction, 'output/jointReaction.sto')
-osim.STOFileAdapter().write(activity, 'output/activity.sto')
-osim.STOFileAdapter().write(force,    'output/force.sto')
+# osim.STOFileAdapter().write(reaction, 'output/jointReaction.sto')
+# osim.STOFileAdapter().write(activity, 'output/activity.sto')
+# osim.STOFileAdapter().write(force,    'output/force.sto')
+# osim.STOFileAdapter().write(state,    'output/state.sto')
 
 
 
-
+plt.close('all')
 plt.figure()
 # plt.plot(t, activity.getDependentColumn('soleus_r').to_numpy(), label='soleus_r')
 # plt.plot(t, activity.getDependentColumn('gasmed_r').to_numpy(), label='gast med_r')
@@ -375,133 +411,102 @@ plt.xlabel('Time (s)')
 # plt.savefig('output/activity.png')
 plt.show(block=False)
 
-
 plt.figure()
-plt.plot(t, -1*reaction.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
+plt.plot(t, activity.getDependentColumn('glmin1_l').to_numpy(), label='glmin1_l')
+plt.plot(t, activity.getDependentColumn('glmin2_l').to_numpy(), label='glmin2_l')
+plt.plot(t, activity.getDependentColumn('glmin3_l').to_numpy(), label='glmin3_l')
+plt.plot(t, activity.getDependentColumn('glmed1_l').to_numpy(), label='glmed1_l')
+plt.plot(t, activity.getDependentColumn('glmed2_l').to_numpy(), label='glmed2_l')
+plt.plot(t, activity.getDependentColumn('glmed3_l').to_numpy(), label='glmed3_l')
+plt.plot(t, activity.getDependentColumn('recfem_l').to_numpy(), label='recfem_l')
+plt.legend()
 plt.show(block=False)
 
 
-# %%
-plt.close('all')
-typical  = osim.TimeSeriesTable('output/jointReaction_t.sto')
-volume = osim.TimeSeriesTable('output/jointReaction_v.sto')
-volLength = osim.TimeSeriesTable('output/jointReaction_vl.sto')
-pcsaRatio = osim.TimeSeriesTable('output/jointReaction_pr.sto')
-volRatio = osim.TimeSeriesTable('output/jointReaction_vr.sto')
-ratio = osim.TimeSeriesTable('output/jointReaction_r.sto')
+plt.figure()
+plt.plot(t, -1*reaction.getDependentColumn('walker_knee_l_y').to_numpy(), label='KJCF')#/(85*9.81)
+plt.legend()
+plt.show(block=False)
 
-t = typical.getIndependentColumn()
+
+
+
+
+
+
+
+
+# %% Joint Contact Force
+
+w = (85*9.81) # weight
+
+plt.close('all')
+typ   = osim.TimeSeriesTable('output/jointReaction_typ3.sto')
+vol   = osim.TimeSeriesTable('output/jointReaction_vol3.sto')
+volR  = osim.TimeSeriesTable('output/jointReaction_volRatio3.sto')
+ratio = osim.TimeSeriesTable('output/jointReaction_ratio3.sto')
+tf    = osim.TimeSeriesTable('output/jointReaction_tendonFiber3.sto')
+
+t = typ.getIndependentColumn()
 
 plt.close('all')
 fig, (ax1,ax2,ax3) = plt.subplots(1,3, figsize=(13,4.5), tight_layout=True, sharey=False, sharex=True)
 plt.suptitle('Joint Contact Force')
 
-ax1.plot(t, -1*typical.getDependentColumn('hip_l_y').to_numpy(), label='typical')
-ax1.plot(t, -1*volume.getDependentColumn('hip_l_y').to_numpy(), label='volume')
-# ax1.plot(t, -1*volLength.getDependentColumn('hip_l_y').to_numpy(), label='volume*length')
-# ax1.plot(t, -1*pcsaRatio.getDependentColumn('hip_l_y').to_numpy(), label='PCSA/ratio')
-ax1.plot(t, -1*ratio.getDependentColumn('hip_l_y').to_numpy(), label='1/ratio')
-ax1.plot(t, -1*volRatio.getDependentColumn('hip_l_y').to_numpy(), label='volume/ratio')
-ax1.set_title('Hip Joint')
-ax1.set_xlabel('Time (s)')
-ax1.legend()
+for data,ax,label in zip(['hip_l_y', 'walker_knee_l_y', 'ankle_l_y'], \
+		[ax1,ax2,ax3], ['Hip','Knee','Ankle']):
+	ax.plot(t, -1*typ.getDependentColumn(data).to_numpy()/w,   label='typical')
+	ax.plot(t, -1*vol.getDependentColumn(data).to_numpy()/w,   label='volume')
+	ax.plot(t, -1*ratio.getDependentColumn(data).to_numpy()/w, label='1/ratio')
+	ax.plot(t, -1*volR.getDependentColumn(data).to_numpy()/w,  label='volume/ratio')
+	ax.plot(t, -1*tf.getDependentColumn(data).to_numpy()/w,    label='tendon/fiber')
+	ax.set_title(f'{label} Joint')
+	ax.set_xlabel('Stance time (s)')
+	ax.legend()
 
-ax2.plot(t, -1*typical.getDependentColumn('walker_knee_l_y').to_numpy(), label='typical')
-ax2.plot(t, -1*volume.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume')
-# ax2.plot(t, -1*volLength.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume*length')
-# ax2.plot(t, -1*pcsaRatio.getDependentColumn('walker_knee_l_y').to_numpy(), label='PCSA/ratio')
-ax2.plot(t, -1*ratio.getDependentColumn('walker_knee_l_y').to_numpy(), label='1/ratio')
-ax2.plot(t, -1*volRatio.getDependentColumn('walker_knee_l_y').to_numpy(), label='volume/ratio')
-ax2.set_title('Knee Joint')
-ax2.set_xlabel('Time (s)')
-ax2.legend()
-
-ax3.plot(t, -1*typical.getDependentColumn('ankle_l_y').to_numpy(), label='typical')
-ax3.plot(t, -1*volume.getDependentColumn('ankle_l_y').to_numpy(), label='volume')
-# ax3.plot(t, -1*volLength.getDependentColumn('ankle_l_y').to_numpy(), label='volume*length')
-# ax3.plot(t, -1*pcsaRatio.getDependentColumn('ankle_l_y').to_numpy(), label='PCSA/ratio')
-ax3.plot(t, -1*ratio.getDependentColumn('ankle_l_y').to_numpy(), label='1/ratio')
-ax3.plot(t, -1*volRatio.getDependentColumn('ankle_l_y').to_numpy(), label='volume/ratio')
-ax3.set_title('Ankle Joint')
-ax3.set_xlabel('Time (s)')
-ax3.legend()
-
-plt.savefig('output/KJCF.png', dpi=300)
+plt.savefig('output/KJCF_p3.png', dpi=300)
 # plt.show(block=False)
 
 
 
 
 
-# %%
-typical  = osim.TimeSeriesTable('output/activity_t.sto')
-volume = osim.TimeSeriesTable('output/activity_v.sto')
-volLength = osim.TimeSeriesTable('output/activity_vl.sto')
-pcsaRatio = osim.TimeSeriesTable('output/activity_pr.sto')
-volRatio = osim.TimeSeriesTable('output/activity_vr.sto')
-ratio = osim.TimeSeriesTable('output/activity_r.sto')
 
-t = typical.getIndependentColumn()
+
+
+# %% Muscle Activity
+typ   = osim.TimeSeriesTable('output/activity_typ3.sto')
+vol   = osim.TimeSeriesTable('output/activity_vol3.sto')
+volR  = osim.TimeSeriesTable('output/activity_volRatio3.sto')
+ratio = osim.TimeSeriesTable('output/activity_ratio3.sto')
+tf    = osim.TimeSeriesTable('output/activity_tendonFiber3.sto')
+
+t = typ.getIndependentColumn()
 
 plt.close('all')
 # ((ax1,ax2),(ax3,ax4))
-fig, (ax1,ax2,ax5,ax6) = plt.subplots(1,4, figsize=(13,4.5), tight_layout=True, sharey=True, sharex=True)
+_, ((ax1,ax2,ax3,ax4,ax5),(ax6,ax7,ax8,ax9,ax10),(ax11,ax12,ax13,ax14,ax15), \
+	(ax16,ax17,ax18,ax19,ax20),(ax21,ax22,ax23,ax24,ax25)) = \
+	plt.subplots(5,5, figsize=(11,9), tight_layout=True, sharey='row', sharex=True)
+
 plt.suptitle('Muscle activity')
-
-ax1.plot(t, typical.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-ax1.plot(t, typical.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-ax1.plot(t, typical.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-ax1.plot(t, typical.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-ax1.plot(t, typical.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
-ax1.set_title('Typical SOpt')
-ax1.set_xlabel('Time (s)')
-ax1.legend()
-
-ax2.plot(t, volume.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-ax2.plot(t, volume.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-ax2.plot(t, volume.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-ax2.plot(t, volume.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-ax2.plot(t, volume.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
-ax2.set_title('Volume-weighted SOpt')
-ax2.set_xlabel('Time (s)')
-ax2.legend()
-
-# ax3.plot(t, volLength.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-# ax3.plot(t, volLength.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-# ax3.plot(t, volLength.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-# ax3.plot(t, volLength.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-# ax3.plot(t, volLength.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
-# ax3.set_title('Volume*length-weighted SOpt')
-# ax3.set_xlabel('Time (s)')
-# ax3.legend()
-
-# ax4.plot(t, pcsaRatio.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-# ax4.plot(t, pcsaRatio.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-# ax4.plot(t, pcsaRatio.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-# ax4.plot(t, pcsaRatio.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-# ax4.plot(t, pcsaRatio.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
-# ax4.set_title('PCSA/ratio-weighted SOpt')
-# ax4.set_xlabel('Time (s)')
-# ax4.legend()
-
-ax5.plot(t, ratio.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-ax5.plot(t, ratio.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-ax5.plot(t, ratio.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-ax5.plot(t, ratio.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-ax5.plot(t, ratio.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
-ax5.set_title('1/ratio-weighted SOpt')
-ax5.set_xlabel('Time (s)')
-ax5.legend()
+colect = {'r0':[[ax1,ax2,ax3,ax4,ax5],['soleus_l','gasmed_l','gaslat_l','perlong_l','perbrev_l','tibant_l']],
+	'r1':[[ax6,ax7,ax8,ax9,ax10],['recfem_l','vasmed_l','vasint_l','vaslat_l']],
+	'r2':[[ax11,ax12,ax13,ax14,ax15],['semimem_l','semiten_l','bflh_l','bfsh_l','sart_l','grac_l']],
+	'r3':[[ax16,ax17,ax18,ax19,ax20],['tfl_l','iliacus_l','psoas_l']],
+	'r4':[[ax21,ax22,ax23,ax24,ax25],['glmax1_l','glmax2_l','glmax3_l','glmin1_l','glmin2_l','glmin3_l','glmed1_l','glmed2_l','glmed3_l']]}
 
 
-ax6.plot(t, volRatio.getDependentColumn('soleus_l').to_numpy(), label='soleus l')
-ax6.plot(t, volRatio.getDependentColumn('gasmed_l').to_numpy(), label='gast med l')
-ax6.plot(t, volRatio.getDependentColumn('gaslat_l').to_numpy(), label='gast lat l')
-ax6.plot(t, volRatio.getDependentColumn('perlong_l').to_numpy(), label='per long l')
-ax6.plot(t, volRatio.getDependentColumn('tfl_l').to_numpy(), label='tfl l')
-ax6.set_title('volume/ratio-weighted SOpt')
-ax6.set_xlabel('Time (s)')
-ax6.legend()
+for row,(axs,muscles) in colect.items():
+	for data,ax,label in zip([typ,vol,ratio,volR,tf], axs, \
+			['typical','volume','1/ratio','volume/ratio','tendon/fiber']):
+		for muscle in muscles:
+			ax.plot(t, data.getDependentColumn(muscle).to_numpy(), label=muscle)
+			if row=='r0': ax.set_title(f'{label} SOpt')
+			ax.set_xlabel('Stance time (s)')
+			ax.spines['top'].set_visible(False)
+			ax.spines['right'].set_visible(False)
+			if ax == axs[-1]: ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0.)
 
-plt.savefig('output/activity.png', dpi=300)
 # plt.show(block=False)
+plt.savefig('output/activity_p3.png', dpi=300)
