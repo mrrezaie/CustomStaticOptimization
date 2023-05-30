@@ -441,11 +441,11 @@ plt.show(block=False)
 w = (85*9.81) # weight
 
 plt.close('all')
-typ   = osim.TimeSeriesTable('output/jointReaction_typ3.sto')
-vol   = osim.TimeSeriesTable('output/jointReaction_vol3.sto')
-volR  = osim.TimeSeriesTable('output/jointReaction_volRatio3.sto')
-ratio = osim.TimeSeriesTable('output/jointReaction_ratio3.sto')
-tf    = osim.TimeSeriesTable('output/jointReaction_tendonFiber3.sto')
+typ   = osim.TimeSeriesTable('output/jointReaction_typ.sto')
+vol   = osim.TimeSeriesTable('output/jointReaction_vol.sto')
+volR  = osim.TimeSeriesTable('output/jointReaction_volRatio.sto')
+ratio = osim.TimeSeriesTable('output/jointReaction_ratio.sto')
+tf    = osim.TimeSeriesTable('output/jointReaction_tendonFiber.sto')
 
 t = typ.getIndependentColumn()
 
@@ -462,9 +462,10 @@ for data,ax,label in zip(['hip_l_y', 'walker_knee_l_y', 'ankle_l_y'], \
 	ax.plot(t, -1*tf.getDependentColumn(data).to_numpy()/w,    label='tendon/fiber')
 	ax.set_title(f'{label} Joint')
 	ax.set_xlabel('Stance time (s)')
+	ax.set_ylabel('Force (N/BW)')
 	ax.legend()
 
-plt.savefig('output/KJCF_p3.png', dpi=300)
+plt.savefig('output/KJCF_p2.png', dpi=300)
 # plt.show(block=False)
 
 
