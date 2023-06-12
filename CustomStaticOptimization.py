@@ -166,14 +166,14 @@ for i in q.getColumnLabels():
 
 ########## Opimization parameters
 def objFun(a): # sum of weighted squared muscle activation
-	return np.sum(weight*(a)**2)
+	return np.sum(a**2 * weight)
 
 '''Equality constraint means that the constraint function result is to be zero 
 whereas inequality means that it is to be non-negative.'''
 
 def eqConstraint(a):  # A.dot(x)-b  == np.sum(A*x,axis=1)-b
 	# return momentArm.dot(a*MIF) - moment # classic static optimization
-	return momentArm.dot(a*activeElement + passiveElement) - moment
+	return momentArm.dot(a * activeElement + passiveElement) - moment
 
 # def eqConstraint2(a):  # gast activation constraint or EMG constraint
 # 	return a[nameMuscles.index('gasmed_r')] - a[nameMuscles.index('gaslat_r')]
@@ -185,6 +185,7 @@ volume = PCSA * OFL   # muscle volume
 length = OFL*np.cos(OPA) + TSL    # muscle length
 ratio  = OFL*np.cos(OPA) / length # fiber to muscle-tendon length ratio
 tenR   = TSL / length
+
 # weight = np.zeros(nMuscles)
 # weight = np.ones(nMuscles)
 # weight = volume * length
@@ -193,18 +194,20 @@ tenR   = TSL / length
 # weight = 1 / ratio
 # weight = TSL / ratio
 # weight = volume
-# weight = volume * TSL
+# weight = volume * TSL # bad for Gmin
 # weight = volume * tenR
 # weight = PCSA * tenR
 # weight = PCSA * ratio
-# weight = tenR # good but too musch KJCF
+# weight = tenR # good but too much KJCF
 # weight = TSL
 # weight = OFL
 # weight = 1 / OFL
 # weight = OFL * TSL
 # weight = OFL * np.sin(OPA) * TSL
-weight = TSL / OFL # good one particularly with p3
-# weight = TSL / OFL*np.cos(OPA)
+# weight = TSL / OFL # good one particularly with p3
+# weight = TSL / OFL*np.cos(OPA) # good one
+# weight = (volume * TSL) / (OFL*np.cos(OPA))
+weight = PCSA * TSL / np.cos(OPA)
 # weight = PCSA * TSL / length
 # weight = PCSA
 # weight = PCSA / OFL
@@ -213,6 +216,7 @@ weight = TSL / OFL # good one particularly with p3
 # weight = (np.sqrt(PCSA)*TSL)
 # weight = np.sqrt(PCSA) * TSL / OFL
 # weight = np.sqrt(PCSA) * TSL / length
+
 
 # store weights as a CSV file
 head = ['muscles','MIF','PCSA','OFL','TSL','LENGTH', \
@@ -301,7 +305,7 @@ for i,ii in enumerate(t):
 	passiveElement = MIF*PFM*CPA     # along tendon, 1D (nMuscles)
 
 	out = minimize(objFun, x0=init, method='SLSQP', bounds=Bounds(lb,ub), \
-				   constraints=constraints, options={'maxiter':500}, tol=1e-06)
+				   constraints=constraints, options={'maxiter':500}, tol=1e-6) #constraints=constraints, 
 	init = out['x']
 	activity.appendRow(ii, osim.RowVector(out['x']))
 	force.appendRow(ii, osim.RowVector(activeElement * out['x'] + passiveElement))
@@ -331,47 +335,6 @@ for i,ii in enumerate(t):
 
 print(f'Optimization ... finished in {time()-ts:.2f} s')
 
-
-
-########## Inter-segmental forces and moments
-# model2 = model.clone()
-# model2.getMuscles().clearAndDestroy()
-# model2.printToXML('new.osim')
-# # model2.getForceSet(osim.ForceSet())
-
-# for coordinate in model2.getCoordinateSet():
-# if coordinate.get_locked()==False and coordinate.getMotionType()!=3:
-# 	name = coordinate.getName()
-
-# 	##### add coordinate actuator
-# 	CA = osim.CoordinateActuator()
-# 	CA.setName(name+'_actuator')
-# 	CA.setCoordinate(coordinate)
-# 	CA.setMinControl(-float('inf'))
-# 	CA.setMaxControl(float('inf'))
-# 	CA.setOptimalForce(1)
-# 	model2.addForce(CA)
-
-# 	##### add controller
-# 	const = osim.Constant(0)
-# 	const.setName(name+'_const')
-# 	PC = osim.PrescribedController()
-
-# 	PC.setName(name+'_controller')
-# 	PC.addActuator(CA)
-# 	PC.prescribeControlForActuator(0,const)
-# 	model2.addController(PC)
-
-# state2 = model2.initSystem()
-# for i,ii in enumerate(t):
-# 	state2.setTime(ii)
-
-# 	##### Update coordinates' values and speeds
-# 	value = osim.RowVector(q.getRowAtIndex(i))
-# 	speed = osim.RowVector(u.getRowAtIndex(i))
-# 	for j,coordinate in enumerate(model2.updCoordinateSet()):
-# 		coordinate.setValue(state, value[j], False)
-# 		coordinate.setSpeedValue(state, speed[j])
 
 ########## write output to sto files
 reaction = reaction.flatten(['_x','_y','_z'])
@@ -511,3 +474,47 @@ for row,(axs,muscles) in colect.items():
 
 # plt.show(block=False)
 plt.savefig('output/activity_p3.png', dpi=300)
+
+
+
+
+# %%
+########## Inter-segmental forces and moments
+# model2 = model.clone()
+# model2.getMuscles().clearAndDestroy()
+# model2.printToXML('new.osim')
+# # model2.getForceSet(osim.ForceSet())
+
+# for coordinate in model2.getCoordinateSet():
+# if coordinate.get_locked()==False and coordinate.getMotionType()!=3:
+# 	name = coordinate.getName()
+
+# 	##### add coordinate actuator
+# 	CA = osim.CoordinateActuator()
+# 	CA.setName(name+'_actuator')
+# 	CA.setCoordinate(coordinate)
+# 	CA.setMinControl(-float('inf'))
+# 	CA.setMaxControl(float('inf'))
+# 	CA.setOptimalForce(1)
+# 	model2.addForce(CA)
+
+# 	##### add controller
+# 	const = osim.Constant(0)
+# 	const.setName(name+'_const')
+# 	PC = osim.PrescribedController()
+
+# 	PC.setName(name+'_controller')
+# 	PC.addActuator(CA)
+# 	PC.prescribeControlForActuator(0,const)
+# 	model2.addController(PC)
+
+# state2 = model2.initSystem()
+# for i,ii in enumerate(t):
+# 	state2.setTime(ii)
+
+# 	##### Update coordinates' values and speeds
+# 	value = osim.RowVector(q.getRowAtIndex(i))
+# 	speed = osim.RowVector(u.getRowAtIndex(i))
+# 	for j,coordinate in enumerate(model2.updCoordinateSet()):
+# 		coordinate.setValue(state, value[j], False)
+# 		coordinate.setSpeedValue(state, speed[j])
