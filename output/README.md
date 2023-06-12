@@ -1,14 +1,14 @@
 Muscles activity (power=2)
-![sample](output/activity_p2.png)
+![sample](activity_p2.png)
 
 Muscles activity (power=3)
-![sample](output/activity_p3.png)
+![sample](activity_p3.png)
 
 Joint contact force (power=2)
-![sample](output/KJCF_p2.png)
+![sample](KJCF_p2.png)
 
 Joint contact force (power=3)
-![sample](output/KJCF_p3.png)
+![sample](KJCF_p3.png)
 
 # Equations
 $$ PCSA = {MIF \over 60} $$
