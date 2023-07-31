@@ -87,7 +87,7 @@ OFL = np.empty(nMuscles) # optimal fiber length
 TSL = np.empty(nMuscles) # tendon slack length
 OPA = np.empty(nMuscles) # pennation angle at optimal fiber length
 
-for i,muscle in enumerate(model.updMuscles()):
+for i,muscle in enumerate(model.getMuscles()):
 	# muscle = osim.Millard2012EquilibriumMuscle.safeDownCast(muscles.get(i))
 
 	MIF[i] = muscle.getMaxIsometricForce()
@@ -125,6 +125,8 @@ ignoreTendonCompliance     computeEquilibrium     ForceVelocityMultiplier
                         active force-length multiplier * force-velocity multiplier
 # parallel elasic element = max isometric force * passive force-length multiplier
 # fiber force along tendon = (contractile element + parallel elasic element) * cos pennation angle
+
+# total muscle tendon length (optimal fiber length plus tendon slack length) van der Krogt 2016
 '''
 
 ########## Coordinates' values
@@ -182,7 +184,7 @@ def eqConstraint(a):  # A.dot(x)-b  == np.sum(A*x,axis=1)-b
 # weighting
 PCSA   = MIF / 60     # specific tension used by Rajagopal et al. (2016) (N/cm^2)
 volume = PCSA * OFL   # muscle volume
-length = OFL*np.cos(OPA) + TSL    # muscle length
+length = OFL*np.cos(OPA) + TSL    # muscle length, 
 ratio  = OFL*np.cos(OPA) / length # fiber to muscle-tendon length ratio
 tenR   = TSL / length
 
@@ -193,7 +195,7 @@ tenR   = TSL / length
 # weight = volume / ratio
 # weight = 1 / ratio
 # weight = TSL / ratio
-# weight = volume
+weight = volume
 # weight = volume * TSL # bad for Gmin
 # weight = volume * tenR
 # weight = PCSA * tenR
@@ -207,7 +209,7 @@ tenR   = TSL / length
 # weight = TSL / OFL # good one particularly with p3
 # weight = TSL / OFL*np.cos(OPA) # good one
 # weight = (volume * TSL) / (OFL*np.cos(OPA))
-weight = PCSA * TSL / np.cos(OPA)
+# weight = PCSA * TSL / np.cos(OPA)
 # weight = PCSA * TSL / length
 # weight = PCSA
 # weight = PCSA / OFL
@@ -262,7 +264,7 @@ for i,ii in enumerate(t):
 	##### Update coordinates' values and speeds
 	value = osim.RowVector(q.getRowAtIndex(i))
 	speed = osim.RowVector(u.getRowAtIndex(i))
-	for j,coordinate in enumerate(model.updCoordinateSet()):
+	for j,coordinate in enumerate(model.getCoordinateSet()):
 		coordinate.setValue(state, value[j], False)
 		coordinate.setSpeedValue(state, speed[j])
 		
@@ -515,6 +517,6 @@ plt.savefig('output/activity_p3.png', dpi=300)
 # 	##### Update coordinates' values and speeds
 # 	value = osim.RowVector(q.getRowAtIndex(i))
 # 	speed = osim.RowVector(u.getRowAtIndex(i))
-# 	for j,coordinate in enumerate(model2.updCoordinateSet()):
+# 	for j,coordinate in enumerate(model2.getCoordinateSet()):
 # 		coordinate.setValue(state, value[j], False)
 # 		coordinate.setSpeedValue(state, speed[j])

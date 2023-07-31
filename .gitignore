@@ -5,3 +5,4 @@ output/_JointReaction_ReactionLoads*.sto
 input/Gait2392_simbody
 input/Geometry
 input/Rajagopal_walk
+report/
