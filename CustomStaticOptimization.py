@@ -265,7 +265,7 @@ for i,ii in enumerate(t):
 	value = osim.RowVector(q.getRowAtIndex(i))
 	speed = osim.RowVector(u.getRowAtIndex(i))
 	for j,coordinate in enumerate(model.getCoordinateSet()):
-		coordinate.setValue(state, value[j], False)
+		coordinate.setValue(state, value[j], enforceContraints=False)
 		coordinate.setSpeedValue(state, speed[j])
 		
 	model.assemble(state)
