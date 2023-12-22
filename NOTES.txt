@@ -1,0 +1,27 @@
+Rajagopal et al. 2016. Tendons were modeled as rigid when the tendon slack length was less than the muscle optimal fiber length.
+
+In rigid tendons, there is no fiber_length variable in state.
+In compliant tendons, force-velocity relationship, i.e., muscle dynamics would be ignored.
+
+In Millard2012EquilibriumMuscle:
+ignoreTendonCompliance     computeEquilibrium     ForceVelocityMultiplier
+        False                     False                     0
+        False                     True                      1*
+        True                      False                     values
+        True                      True                      values
+* current implementation
+
+PCSA = max isometric force / 60 (specific tension used by Rajagopal et al. (2016) (N/cm^2))
+muscle volume = muscle length * PCSA
+muscle stress = muscle force / PCSA
+contractile element = activity * max isometric force * active force-length multiplier * force-velocity multiplier
+parallel elasic element = max isometric force * passive force-length multiplier
+fiber force along tendon = (contractile element + parallel elasic element) * cos pennation angle
+
+total muscle tendon length (optimal fiber length plus tendon slack length) van der Krogt 2016
+
+Equality constraint means that the constraint function result is to be zero 
+Inequality constraint means that it is to be non-negative.
+
+Maximum muscle recruitment could be achieved by minmax criteria (Rasmussen2001). However, discontinuities may occur which is not appealing physiologically.
+Currently, I'm working on this issue and the newest idea is muscle moment-weighted cost function. But, it has its own downsides.
