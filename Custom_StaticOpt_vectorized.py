@@ -37,6 +37,8 @@ exclude = ['subtalar_angle_r', 'subtalar_angle_l']
 # minMax, momentMatch, accelerationMatch
 criteria = 'momentMatch'
 
+FC = 7
+
 import numpy as np
 import matplotlib.pyplot as plt
 import os
@@ -107,7 +109,8 @@ for coordinate in multibodyOrder:
 
 		length = list()
 		for j in [r1,r2,r3]:
-			coordinate.setValue(state, j)
+			coordinate.setValue(state, j, enforceContraints=False)
+			model.assemble(state)
 			model.realizePosition(state)
 			length.append([muscle.getLength(state) for muscle in model.getMuscles()])
 		
@@ -147,16 +150,19 @@ for cName,musclesName in coordinateMuscles.items():
 
 # boolean to include only specific coordinates
 indxCoordinates = list()
+include = list()
 for i,cName in enumerate(nameCoordinatesM):
 	c1 = not cName in exclude
 	c2 = not cName in unfree
 	c3 = not cName in empty
 	if c1 and c2 and c3:
 		indxCoordinates.append(i)
-		print('include', cName)
-	else:
-		print('exclude', cName)
-print()
+		include.append(cName)
+
+print(f"Excluded coordinates: \n\t{' '.join(exclude)}\n")
+print(f"Unfree coordinates: \n\t{' '.join(unfree)}\n")
+print(f"No muscles coordinates: \n\t{' '.join(empty)}\n")
+print(f"Included coordinates: \n\t{' '.join(include)}\n")
 
 ########## Get initial muscles properties
 MIF = np.empty(nMuscles) # maximum isometric force
@@ -164,14 +170,16 @@ OFL = np.empty(nMuscles) # optimal fiber length
 TSL = np.empty(nMuscles) # tendon slack length
 OPA = np.empty(nMuscles) # pennation angle at optimal fiber length
 
-for i,muscle in enumerate(model.getMuscles()):
+rigidTendon, compliantTendon = list(), list()
+for mi,muscle in enumerate(model.getMuscles()):
 	# muscle = osim.Millard2012EquilibriumMuscle.safeDownCast(muscle)
 	# muscle.setMaxIsometricForce( 0.5* muscle.getMaxIsometricForce())
+	mName = muscle.getName()
 
-	MIF[i] = muscle.getMaxIsometricForce()
-	OFL[i] = muscle.getOptimalFiberLength()
-	TSL[i] = muscle.getTendonSlackLength()
-	OPA[i] = muscle.getPennationAngleAtOptimalFiberLength()
+	MIF[mi] = muscle.getMaxIsometricForce()
+	OFL[mi] = muscle.getOptimalFiberLength()
+	TSL[mi] = muscle.getTendonSlackLength()
+	OPA[mi] = muscle.getPennationAngleAtOptimalFiberLength()
 
 	muscle.set_ignore_activation_dynamics(False) # activation dynamics (have no impact)
 	muscle.set_ignore_tendon_compliance(False)   # compliant tendon
@@ -179,83 +187,66 @@ for i,muscle in enumerate(model.getMuscles()):
 
 	if muscle.getTendonSlackLength() < muscle.getOptimalFiberLength():
 		muscle.set_ignore_tendon_compliance(True) # rigid tendon
-		print('r i g i d tendon:', muscle.getName())
+		rigidTendon.append(mName)
 	else:
 		muscle.set_ignore_tendon_compliance(False) # compliant tendon
-		print('compliant tendon:', muscle.getName())
-print()
+		compliantTendon.append(mName)
+
+print(f"Rigid Tendons: \n\t{' '.join(rigidTendon)}\n")
+print(f"Compliant Tendons: \n\t{' '.join(compliantTendon)}\n")
 
 state = model.initSystem() # the size is subject to the tendon models
 
 
-########## coordinates value
+########## read Ik and ID files (coordinates value and generalized forces)
+
+# read IK and ID files
 IKFile = osim.TimeSeriesTable(IKName)
+IDFile = osim.TimeSeriesTable(IDName)
 
-osim.TableUtilities().filterLowpass(IKFile, 7, padData=True) # Butterworthlow pass filter (3rd order)
-IKFile.trim(cycle[0], cycle[1]) # remove padding
+# process the tables
+for table in [IKFile,IDFile]:
+	timeColumn = table.getIndependentColumn() # time
+	osim.TableUtilities().filterLowpass(table, FC, padData=True) # Butterworthlow pass filter (3rd order)
+	table.trim(timeColumn[0], timeColumn[-1]) # remove padding
 
+# convert IK degrees to radians
 if IKFile.getTableMetaDataString('inDegrees') == 'yes':
 	model.getSimbodyEngine().convertDegreesToRadians(IKFile) # convert from degrees to radians
 	print('Coordinates were converted to Radians\n')
 
-times = IKFile.getIndependentColumn() # time
-
-q = osim.TimeSeriesTable(times)
-# change order of q table to multibody tree order
-for cName in nameCoordinatesM:
-	if IKFile.hasColumn(cName):
-		column = IKFile.getDependentColumn(cName) #.to_numpy() VectorView returns wrong values
-		q.appendColumn(cName, (column)) #osim.Vector 
-	else:
-		print(f'{cName} does not exist in {IKName} file')
-
-del IKFile, column
+# generate times
+fs = round(1/np.diff(timeColumn).mean())
+dt = 1/fs
+nTimes = round((cycle[1]-cycle[0]) * fs) + 1
+times = np.linspace(cycle[0], cycle[1], nTimes)
 
 
 ########## calculate speeds and accelerations
-GCVS = osim.GCVSplineSet(q) # degree=5
+q,u,u_dot,tau = [osim.TimeSeriesTable(times) for _ in range(4)]
 
-u     = q.clone() # osim.TimeSeriesTable(times)
-u_dot = q.clone()
-
-# d1 = osim.StdVectorInt(); d1.push_back(0) # first derivative
+# GCVSplineSet helps fix time irregularity and inconsistency
+IKGCVSS = osim.GCVSplineSet(IKFile, [], 5, 0) # degree=5
+IDGCVSS = osim.GCVSplineSet(IDFile, [], 5, 0) # degree=5
 # d2 = osim.StdVectorInt(); d2.push_back(0); d2.push_back(0) # second derivative
 
-for i,label in enumerate(q.getColumnLabels()): # already in multibody tree order
+for cName in nameCoordinatesM: # in multibody tree order
 
-	# speedColumn = [GCVS.evaluate(i, 1, time) for time in times] # first  derivative
-	# accelColumn = [GCVS.evaluate(i, 2, time) for time in times] # second derivative
-	# speedColumn = [GCVS.get(label).calcDerivative(d1, osim.Vector(1,time)) for time in times]
-	# accelColumn = [GCVS.get(label).calcDerivative(d2, osim.Vector(1,time)) for time in times]
-
-	speedColumn = u.updDependentColumn(label)
-	accelColumn = u_dot.updDependentColumn(label)
-
-	for j, time in enumerate(times):
-		speedColumn[j] = GCVS.evaluate(i, 1, time) # first  derivative
-		accelColumn[j] = GCVS.evaluate(i, 2, time) # second derivative
-
-
-########## generalized forces
-IDFile = osim.TimeSeriesTable(IDName)
-
-osim.TableUtilities().filterLowpass(IDFile, 14, padData=True)
-IDFile.trim(cycle[0], cycle[1])
-
-tau = osim.TimeSeriesTable(times)
-
-for cName in nameCoordinatesM:
+	GCVS = IKGCVSS.get(cName)
+	q.appendColumn(cName, osim.Vector([GCVS.calcValue(osim.Vector(1,time)) for time in times]) )
+	u.appendColumn(cName, osim.Vector([GCVS.calcDerivative([0], osim.Vector(1,time)) for time in times]) )
+	u_dot.appendColumn(cName, osim.Vector([GCVS.calcDerivative([0,0], osim.Vector(1,time)) for time in times]) )
 
 	if IDFile.hasColumn(cName+'_moment'):
-		name = cName+'_moment'
+		cNameID = cName+'_moment'
 	elif IDFile.hasColumn(cName+'_force'):
-		name = cName+'_force'
+		cNameID = cName+'_force'	
+	GCVS = IDGCVSS.get(cNameID)
+	tau.appendColumn(cName, osim.Vector([GCVS.calcValue(osim.Vector(1,time)) for time in times]) )
 
-	# print(name, '\t', cName)
-	column = IDFile.getDependentColumn(name) # .to_numpy()
-	tau.appendColumn(cName, (column)) #osim.Vector
+del IDFile, IKFile, timeColumn, IKGCVSS, IDGCVSS, GCVS
 
-del IDFile, column
+
 
 # update tables' metadata
 for table in [q,u,u_dot,tau]:
@@ -265,9 +256,10 @@ for table in [q,u,u_dot,tau]:
 
 
 ########## Add external load file to the model
+# for joint contact force analysis
 GRF = osim.Storage(GRFName)
-for i in osim.ForceSet(ExtLName):
-	exForce = osim.ExternalForce.safeDownCast(i)
+for exForce in osim.ForceSet(ExtLName):
+	exForce = osim.ExternalForce.safeDownCast(exForce)
 	exForce.setDataSource(GRF)
 	model.getForceSet().cloneAndAppend(exForce)
 
@@ -275,54 +267,40 @@ for i in osim.ForceSet(ExtLName):
 ########## Add actuators to coordinates without muscle
 
 nActuators = 0
-indxActuators = list() # index of coordinates with actuator
 
-for i,coordinate in enumerate(multibodyOrder):
+# for i,coordinate in enumerate(multibodyOrder):
+# 	cName = coordinate.getName()
+# 	c1 = cName in empty
+# 	c2 = not cName in exclude
+# 	c3 = not cName in unfree
+# 	if c1 and c2 and c3:
 
-	cName = coordinate.getName()
-	c1 = cName in empty
-	c2 = not cName in exclude
-	c3 = not cName in unfree
+for cName in empty:
 
-	if c1 and c2 and c3:
+	# coordinate actuator
+	actuator = osim.CoordinateActuator()
+	actuator.setName(cName+'_actuator')
+	actuator.setCoordinate(coordinate)
+	actuator.setMinControl(-np.inf)
+	actuator.setMaxControl(+np.inf)
+	actuator.setOptimalForce(1) # activation == force
+	model.addForce(actuator)
 
-		print(f'Actuator for {cName}')
-		indxActuators.append(i)
+	# # prescribe controller
+	# PC = osim.PrescribedController()
+	# PC.setName(cName+'_controller')
+	# PC.addActuator(actuator)
+	# const = osim.Constant(0)
+	# const.setName(cName+'_const')
+	# PC.prescribeControlForActuator(0,const)
+	# model.addController(PC)
+	nActuators += 1
 
-		# coordinate actuator
-		actuator = osim.CoordinateActuator()
-		actuator.setName(cName+'_actuator')
-		actuator.setCoordinate(coordinate)
-		actuator.setMinControl(-np.inf)
-		actuator.setMaxControl(+np.inf)
-		actuator.setOptimalForce(1) # activation == force
-		model.addForce(actuator)
-
-		# # prescribe controller
-		# PC = osim.PrescribedController()
-		# PC.setName(cName+'_controller')
-		# PC.addActuator(actuator)
-		# const = osim.Constant(0)
-		# const.setName(cName+'_const')
-		# PC.prescribeControlForActuator(0,const)
-		# model.addController(PC)
-
-		nActuators += 1
-
-print(f'Overall {nActuators} coordinate actuators\n')
+print(f"{nActuators} coordinate actuators for \n\t{' '.join(empty)}\n\n")
 
 state  = model.initSystem()
 assert model.getNumControls() == (nMuscles+nActuators)
 
-
-########## Output variables
-activity = osim.TimeSeriesTable()
-activity.setColumnLabels(nameMuscles) # StdVectorString
-force = activity.clone()
-fiberLength = activity.clone()
-reaction = osim.TimeSeriesTableVec3()
-reaction.setColumnLabels(nameJoints) # StdVectorString
-ground = model.getGround()
 
 
 ########## Opimization parameters
@@ -398,7 +376,7 @@ if criteria == 'minMax': # minmax critera (Rasmussen2001)
 
 	def ineqConstraint(a): # must be non-negative
 		beta = a[-1]
-		activation = a[:-1]
+		activation = a[:nMuscles]
 		return beta - activation  # activations less than beta
 
 	constraints = ({'type':'ineq', 'fun':ineqConstraint}, # linear inequality constraint
@@ -427,7 +405,7 @@ if criteria == 'accelerationMatch':
 		# a = out['x']
 
 		# musclesActivation = a[:nMuscles]
-		# actuatorsControl  = a[-nControls:]
+		# actuatorsControl  = a[nMuscles:]
 
 		# model.setControls(state, osim.Vector(a))
 
@@ -478,12 +456,21 @@ if criteria == 'accelerationMatch':
 
 
 	init = [0.1 for _ in range(nMuscles)]
-	lb   = [0.0 for _ in range(nMuscles)] # + [-1. for _ in range(nControls)]
+	lb   = [0.0 for _ in range(nMuscles)]
 	ub   = [1.0 for _ in range(nMuscles)]
 
 	constraints = ({'type':'eq', 'fun':eqConstraint}) # linear equality constraint
 	# constraints = NonlinearConstraint(eqConstraint, lb=0, ub=0) # nonlinear equality constraint
 
+
+########## Output variables
+activity = osim.TimeSeriesTable()
+activity.setColumnLabels(nameMuscles) # StdVectorString
+force = activity.clone()
+fiberLength = activity.clone()
+reaction = osim.TimeSeriesTableVec3()
+reaction.setColumnLabels(nameJoints) # StdVectorString
+ground = model.getGround()
 
 state  = model.initSystem()
 timeStart = absoluteTime()
@@ -525,23 +512,23 @@ for ti,time in enumerate(times):
 	MA  = np.zeros((nCoordinates, nMuscles)) # force velocity multiplier
 	FL  = np.empty(nMuscles) # fiber length
 
-	for j,muscle in enumerate(model.getMuscles()):
+	for mi,muscle in enumerate(model.getMuscles()):
 		# muscle = osim.Millard2012EquilibriumMuscle.safeDownCast(muscle)
 		mName = muscle.getName()
 		muscle.setActivation(state, 1)
 		muscle.computeEquilibrium(state)
 
-		# L[j]   = muscle.getLength(state)
-		CPA[j] = muscle.getCosPennationAngle(state)
-		FLM[j] = muscle.getActiveForceLengthMultiplier(state)
-		PFM[j] = muscle.getPassiveForceMultiplier(state)
-		FVM[j] = muscle.getForceVelocityMultiplier(state)
-		FL[j]  = muscle.getFiberLength(state)
+		# L[mi]   = muscle.getLength(state)
+		CPA[mi] = muscle.getCosPennationAngle(state)
+		FLM[mi] = muscle.getActiveForceLengthMultiplier(state)
+		PFM[mi] = muscle.getPassiveForceMultiplier(state)
+		FVM[mi] = muscle.getForceVelocityMultiplier(state)
+		FL[mi]  = muscle.getFiberLength(state)
 
 		for cName in muscleCoordinates[mName]:
-			indx = nameCoordinatesM.index(cName)
+			ci = nameCoordinatesM.index(cName)
 			coordinate = model.getCoordinateSet().get(cName)
-			MA[indx,j] = muscle.computeMomentArm(state, coordinate)
+			MA[ci,mi] = muscle.computeMomentArm(state, coordinate)
 
 	fiberLength.appendRow(time, osim.RowVector(FL))
 
@@ -559,15 +546,12 @@ for ti,time in enumerate(times):
 					options={'maxiter':200}, tol=1e-6)
 	init = out['x']
 
-	if criteria == 'minMax':
-		mActivation = out['x'][:-1]
-	else:
-		mActivation = out['x']
+	mActivation = out['x'][:nMuscles]
 
 	activity.appendRow(time, osim.RowVector(mActivation))
 	force.appendRow(time, osim.RowVector(activeElement * mActivation + passiveElement))
 
-	print(f'Optimization ... {(ti+1):0>3d}/{len(times):0>3d} ({round(time,3):.3f})', \
+	print(f'Optimization ... {(ti+1):0>3d}/{nTimes:0>3d} ({round(time,3):.3f})', \
 	 	  f"success={out['success']} fun={round(out['fun'],3)}")#, musclesMomentW.sum().round(3))
 
 	if out['status'] != 0: 
@@ -588,9 +572,9 @@ for ti,time in enumerate(times):
 	# 	const = osim.Constant.safeDownCast(PC.get_ControlFunctions(0).get(0))
 	# 	const.setValue(values)
 
-	aActivation = tau.getRowAtIndex(ti).to_numpy()[indxActuators]
+	aActivation = [tau.getDependentColumn(cName)[ti] for cName in empty]
 
-	model.setControls(state, osim.Vector(mActivation.tolist() + aActivation.tolist()))
+	model.setControls(state, osim.Vector(mActivation.tolist()+aActivation) )
 	model.equilibrateMuscles(state)
 	model.realizeAcceleration(state)
 
@@ -602,27 +586,21 @@ for ti,time in enumerate(times):
 		row.append(ground.expressVectorInAnotherFrame(state, reactionForce, jointChildBody))
 	reaction.appendRow(time, osim.RowVectorVec3(row))
 
-	# break
-
-print(f'Optimization ... finished in {absoluteTime()-timeStart:.2f} s')
-
-# print(np.round(predictedUDot, 3))
-# print(np.round(experimentalUDot, 3))
+print(f'Optimization ... finished in {absoluteTime()-timeStart:.2f} s\n')
 
 
 ########## write output to sto files
 reaction = reaction.flatten(['_x','_y','_z'])
 
-stateAll = osim.TimeSeriesTable(times)
-
+stateData = osim.TimeSeriesTable(times)
 for i in multibodyOrder:
-	stateAll.appendColumn(i.getAbsolutePathString()+'/value', q.getDependentColumn(i.getName()))
-	# stateAll.appendColumn(i.getAbsolutePathString()+'/speed', u_dot.getDependentColumn(i.getName()))
+	stateData.appendColumn(i.getAbsolutePathString()+'/value', q.getDependentColumn(i.getName()))
+	stateData.appendColumn(i.getAbsolutePathString()+'/speed', u_dot.getDependentColumn(i.getName()))
 for i in model.getMuscles():
-	stateAll.appendColumn(i.getAbsolutePathString()+'/fiber_length', fiberLength.getDependentColumn(i.getName()))
-	stateAll.appendColumn(i.getAbsolutePathString()+'/activation', activity.getDependentColumn(i.getName()))
+	stateData.appendColumn(i.getAbsolutePathString()+'/fiber_length', fiberLength.getDependentColumn(i.getName()))
+	stateData.appendColumn(i.getAbsolutePathString()+'/activation', activity.getDependentColumn(i.getName()))
 
-for table in [reaction,activity,force,stateAll]:
+for table in [reaction,activity,force,stateData]:
 	table.addTableMetaDataString('inDegrees', 'no')
 	table.addTableMetaDataString('nColumns', str(table.getNumColumns()))
 	table.addTableMetaDataString('nRows',    str(table.getNumRows()))
@@ -630,7 +608,7 @@ for table in [reaction,activity,force,stateAll]:
 # # # osim.STOFileAdapter().write(reaction, 'output/jointReaction.sto')
 # # # osim.STOFileAdapter().write(activity, 'output/activity.sto')
 # # # osim.STOFileAdapter().write(force,    'output/force.sto')
-# osim.STOFileAdapter().write(stateAll,    'output/state.sto')
+# osim.STOFileAdapter().write(stateData,    'output/state.sto')
 
 
 # This table should contain both coordinates value and speeds and muscle activations. 
@@ -698,10 +676,10 @@ for table in [reaction,activity,force,stateAll]:
 
 
 ########## extract the second joint contact force peak
-print('\nSecond joint contact force peak:')
+print('Second joint contact force peak:')
 for i in ['ankle_r_y', 'walker_knee_r_y', 'hip_r_y']:
 	signal = -1*reaction.getDependentColumn(i).to_numpy()/ (weight)
-	print(i, np.max(signal[40:80]).round(2))
+	print('\t',i, np.max(signal[40:80]).round(2))
 
 
 ########## extract synergy for each muscle group
@@ -732,7 +710,7 @@ for key,items in groupMuscles.items():
 		# plt.plot(np.transpose(data), linestyle='--')
 		# plt.show(block=False)
 
-		print(key, np.std(W.sum(axis=1), ddof=1).round(3))
+		print('\t',key, np.std(W.sum(axis=1), ddof=1).round(3))
 
 
 
